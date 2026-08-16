@@ -1420,26 +1420,217 @@ function openVersionModal(gameId, tenths, focusHk) {
   showModal();
 }
 
-/* ----------------------------- 弹窗：游戏编辑 ----------------------------- */
-let editingGameId = null;
-function openGameModal(gameId) {
-  editingGameId = gameId || null;
-  const game = gameId ? state.games.find(g => g.id === gameId) : null;
-  document.getElementById('modal-title').textContent = game ? '编辑游戏' : '添加游戏';
-  const ic = game ? (game.icon || { type: 'letter', value: game.name[0], color: game.color }) : { type: 'letter', value: '', color: '#22c55e' };
-  const body = document.getElementById('modal-body');
+/* ----------------------------- 游戏统一设置面板（替代：编辑游戏+版本弹窗+✏️修改+⚙️列） ----------------------------- */
+/**
+ * 四个 Tab：
+ *   📋 基本信息 — 名称/周期/图标/锚点（原 openGameModal 基础Tab）
+ *   📅 版本日程表 — 所有版本的可编辑表格（原 版本弹窗+✏️修改+⚙️列 三合一）
+ *   ⚙️ 默认偏移与规则 — 全局偏移/进位规则（原 openGameModal 高级Tab）
+ *   🗑️ 危险操作 — 删除游戏
+ */
+let _gpGameId = null; // 当前打开的面板对应的 gameId
+let _gpCurTab = 'gp-basic';
 
+function openGamePanel(gameId, focusTenths) {
+  _gpGameId = gameId || null;
+  const game = gameId ? state.games.find(g => g.id === gameId) : null;
+  document.getElementById('modal-title').textContent = game ? `${game.name} — 设置` : '添加游戏';
+  const body = document.getElementById('modal-body');
+  const ic = game ? (game.icon || { type: 'letter', value: game.name[0], color: game.color }) : { type: 'letter', value: '', color: '#22c55e' };
+
+  /* ---- 色板 ---- */
   let swatches = '';
   PALETTE.forEach(c => { swatches += `<button type="button" class="swatch" data-c="${c}" style="background:${c}"></button>`; });
 
-  /* ---- 偏移设置：日期选择器（选日期→自动算距更新日天数）---- */
-  const anchorDt = game ? parseDate(game.anchorDate) : todayNoon();
+  body.innerHTML = `
+    <div class="modal-tabs">
+      <button type="button" class="mtab active" data-tab="gp-basic">📋 基本信息</button>
+      <button type="button" class="mtab" data-tab="gp-versions">📅 版本日程表</button>
+      <button type="button" class="mtab ${!game ? 'muted-tab' : ''}" data-tab="gp-rules" ${!game ? 'disabled' : ''}>⚙️ 偏移与规则</button>
+      <button type="button" class="mtab ${!game ? 'muted-tab' : ''}" data-tab="gp-danger" ${!game ? 'disabled' : ''}>🗑️ 危险操作</button>
+    </div>
+
+    <!-- Tab 1: 基本信息 -->
+    <div id="tab-gp-basic">
+      <div class="field"><label>昵称（必填）</label><input type="text" id="g-name" value="${game ? escapeAttr(game.name) : ''}" placeholder="如 原神"></div>
+      <div class="field"><label>全称（选填）</label><input type="text" id="g-full" value="${game ? escapeAttr(game.fullName || '') : ''}" placeholder="如 Genshin Impact"></div>
+      <div class="field"><label>主题色</label><div class="row"><input type="color" id="g-color" value="${game ? game.color : '#22c55e'}" style="width:50px;padding:2px"><input type="text" id="g-color-t" value="${game ? game.color : '#22c55e'}" style="max-width:100px"></div>
+        <div class="swatch-row">${swatches}</div></div>
+      <div class="field"><label>图标</label>
+        <div class="row">
+          <span id="g-icon-prev" class="icon-preview" style="background:${ic.color || '#22c55e'}"></span>
+          <select id="g-ic-type">
+            <option value="letter"${ic.type === 'letter' ? ' selected' : ''}>首字母/文字</option>
+            <option value="emoji"${ic.type === 'emoji' ? ' selected' : ''}>Emoji</option>
+            <option value="file"${ic.type === 'file' ? ' selected' : ''}>图库 / 本地图标</option>
+            <option value="image"${ic.type === 'image' ? ' selected' : ''}>上传图片 / URL</option>
+          </select>
+        </div>
+        <div class="row" style="margin-top:8px" id="g-ic-text-wrap">
+          <input type="text" id="g-ic-val" value="${ic.type === 'emoji' || ic.type === 'letter' ? escapeAttr(ic.value || '') : ''}" placeholder="文字或 emoji">
+        </div>
+        <div class="row" style="margin-top:8px" id="g-ic-img-wrap">
+          <input type="text" id="g-ic-img-url" value="${ic.type === 'image' ? escapeAttr(ic.value || '') : ''}" placeholder="粘贴图片 URL，或选文件">
+          <input type="file" id="g-ic-file" accept="image/*">
+        </div>
+        <div class="icon-gallery hidden" id="g-ic-gallery" style="margin-top:8px"></div>
+        <input type="hidden" id="g-ic-filepath" value="${ic.type === 'file' ? escapeAttr(ic.value || '') : ''}">
+        <div class="muted" style="margin-top:4px">选「图库」可从统一图标库点选；用自己的图选「上传图片」。</div>
+      </div>
+      <div class="field"><label>版本基础周期（天）</label><input type="number" id="g-cycle" min="7" max="120" value="${game ? game.baseCycleDays : DEFAULT_CYCLE}"></div>
+      <div class="field"><label>默认小版本号上限</label><input type="number" id="g-minormax" min="0" max="11" value="${game ? game.minorMax : 9}"></div>
+      <div class="field"><label>锚点版本号（如 5.0）</label><input type="text" id="g-anchorv" value="${game ? verLabel(game, game.anchorTenths) : '1.0'}"></div>
+      <div class="field"><label>锚点版本更新日期</label><input type="date" id="g-anchord" value="${game ? game.anchorDate : fmtDate(todayNoon())}"></div>
+    </div>
+
+    <!-- Tab 2: 版本日程表（可编辑表格） -->
+    <div id="tab-gp-versions" class="hidden">
+      <div class="gp-ver-table-wrap" id="gp-ver-table-container">
+        ${game ? buildGpVersionTable(game, focusTenths) : '<p class="muted">请先保存基本信息后再编辑版本日程。</p>'}
+      </div>
+    </div>
+
+    <!-- Tab 3: 默认偏移与规则 -->
+    <div id="tab-gp-rules" class="hidden">
+      ${game ? buildGpRulesTab(game) : ''}
+    </div>
+
+    <!-- Tab 4: 危险操作 -->
+    <div id="tab-gp-danger" class="hidden">
+      ${game ? `<div class="field"><button class="danger" id="g-del" style="padding:10px 20px;font-size:14px">🗑 删除该游戏</button>
+        <div class="muted" style="margin-top:8px">删除后不可恢复，该游戏的所有版本数据、自定义偏移、备注等将全部清除。</div></div>` : ''}
+    </div>
+  `;
+
+  /* ---- Tab 切换 ---- */
+  function switchTab(tab) {
+    _gpCurTab = tab;
+    body.querySelectorAll('.mtab').forEach(x => {
+      const canSwitch = !x.disabled;
+      x.classList.toggle('active', x.dataset.tab === tab && canSwitch);
+      x.style.opacity = x.disabled ? '.4' : '1';
+      x.style.pointerEvents = x.disabled ? 'none' : 'auto';
+    });
+    ['gp-basic','gp-versions','gp-rules','gp-danger'].forEach(t => {
+      const el = document.getElementById('tab-' + t);
+      if (el) el.classList.toggle('hidden', t !== tab);
+    });
+    // 切到版本表时重新渲染（数据可能已变）
+    if (tab === 'gp-versions' && game) {
+      const container = document.getElementById('gp-ver-table-container');
+      if (container) container.innerHTML = buildGpVersionTable(game, focusTenths);
+      bindGpVersionEvents();
+    }
+  }
+  body.querySelectorAll('.mtab').forEach(t => {
+    if (!t.disabled) t.onclick = () => switchTab(t.dataset.tab);
+  });
+
+  /* ---- 基本信息：图标预览同步（复用原逻辑）---- */
+  setupIconSync(body, game);
+
+  /* ---- 保存按钮 ---- */
+  document.getElementById('modal-save').onclick = () => saveGamePanel(game);
+  const del = body.querySelector('#g-del');
+  if (del) del.onclick = () => {
+    if (!confirm('确定删除该游戏及其全部版本数据？')) return;
+    state.games = state.games.filter(g => g.id !== gameId);
+    delete visibleGames[gameId];
+    saveAndRender(); hideModal(); toast('已删除');
+  };
+
+  // 初始渲染的版本表（即使当前停在基本信息 Tab）也需绑定 ↺ 等交互
+  bindGpVersionEvents();
+  switchTab(_gpCurTab);
+  showModal();
+}
+
+/** 构建 Tab2 版本日程表的 HTML */
+function buildGpVersionTable(game, focusTenths) {
+  const all = genGameVersions(game);
+  const sorted = [...all].sort((a, b) => a.updateDate.getTime() - b.updateDate.getTime());
+  const todayMs = todayNoon().getTime();
+  // 只显示合理范围内的版本（过去30个 + 未来30个）
+  const display = sorted.filter(v => {
+    const days = diffDays(v.updateDate, todayNoon());
+    return days >= -180 && days <= 400;
+  });
+  if (!display.length) return '<p class="muted">暂无版本数据</p>';
+
+  const gEvts = gameActiveEvents(game);
+  const visibleEvKeys = new Set();
+  gEvts.forEach(def => {
+    def.offsets.forEach((_, idx) => {
+      const origKey = def._origKey || def.key;
+      visibleEvKeys.add(origKey + '_' + idx);
+    });
+  });
+
+  // 表头
+  let head = '<tr><th>版本</th><th>更新日期</th>';
+  gEvts.forEach(def => def.offsets.forEach((o, idx) => {
+    const origKey = def._origKey || def.key;
+    head += `<th><span class="chip-dot" style="background:${eventColor(origKey,idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(def.name + (def.sub ? def.sub[idx] : ''))}</th>`;
+  }));
+  head += '<th>备注</th><th style="width:28px"></th></tr>';
+
+  // 行
+  let rows = '';
+  display.forEach(v => {
+    const isCurrent = v.updateDate.getTime() <= todayMs && v.updateDate.getTime() > addDays(todayNoon(), -(game.baseCycleDays || 42)).getTime();
+    const isPast = v.updateDate.getTime() < todayMs;
+    const rowCls = isCurrent ? 'vt-current' : (isPast ? 'vt-past' : '');
+    const verLabelHtml = (isCurrent ? '📍 ' : '') + v.label;
+
+    // 更新日期
+    const vud = game.verUpdateDates && game.verUpdateDates[String(v.tenths)];
+    const updateDateStr = vud || fmtDate(v.updateDate);
+
+    // 备注行
+    const noteVal = (game.verNotes && game.verNotes[String(v.tenths)]) || '';
+
+    let cells = `<td class="vt-ver">${verLabelHtml}</td>`;
+    cells += `<td><input type="date" class="gp-inp-date" data-game="${game.id}" data-tenths="${v.tenths}" data-field="updateDate" value="${updateDateStr}"></td>`;
+
+    // 事件列
+    v.events.forEach(ev => {
+      const ek = ev.defKey + '_' + (ev.sub ?? 0);
+      if (!visibleEvKeys.has(ek)) return; // 该游戏隐藏了此列
+      if (ev.hidden) {
+        cells += `<td class="vt-empty"><label class="le-hide-check"><input type="checkbox" class="gp-hide-ev" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}" /> 恢复</label></td>`;
+      } else {
+        const tkey = evTitleKey(v.tenths, ev.historyKey);
+        const custom = (game.eventTitles && game.eventTitles[tkey]) || '';
+        cells += `<td>
+          <input type="date" class="gp-inp-date gp-ev-date" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}" value="${fmtDate(ev.date)}">
+          <input type="text" class="gp-inp-title" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}" placeholder="备注" value="${escapeAttr(custom)}" title="自定义标题/备注">
+          <label class="le-hide-check" style="font-size:11px;margin-top:2px">
+            <input type="checkbox" class="gp-hide-ev" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}" /> 隐藏
+          </label>
+        </td>`;
+      }
+    });
+
+    // 备注 + 操作
+    cells += `<td><input type="text" class="gp-inp-note" data-game="${game.id}" data-tenths="${v.tenths}" placeholder="可选备注" value="${escapeAttr(noteVal)}"></td>`;
+    cells += `<td><button class="ghost gp-reset-ver" data-game="${game.id}" data-tenths="${v.tenths}" title="恢复默认日期和时长">↺</button></td>`;
+
+    rows += `<tr class="${rowCls}" data-tenths="${v.tenths}">${cells}</tr>`;
+  });
+
+  return `<div class="muted" style="margin-bottom:8px;font-size:12px">直接修改表格中的日期和备注，点保存生效。隐藏某版本的某事件勾选「隐藏」即可。↺ 按钮恢复该版本的默认值。</div>
+    <div class="calendar-scroll"><table class="ver-table gp-editable-table"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
+}
+
+/** 构建 Tab3 偏移与规则的 HTML */
+function buildGpRulesTab(game) {
+  const anchorDt = parseDate(game.anchorDate);
   let offHtml = '<div class="field"><label>事件默认日期 / 偏移（相对版本更新日）</label>' +
-    '<div class="muted" style="margin-bottom:6px">选择该事件的参考日期，系统自动计算距版本更新日的偏移天数。有手动记录时按历史平均优先。</div>';
+    '<div class="muted" style="margin-bottom:6px">选择参考日期 → 自动算偏移天数。有手动记录时按历史平均优先。</div>';
   activeEvents().forEach(def => {
     def.offsets.forEach((defOff, idx) => {
       const hk = def.key + (def.offsets.length > 1 ? '_' + idx : '');
-      const base = (game && game.baseOffsets && typeof game.baseOffsets[hk] === 'number') ? game.baseOffsets[hk] : defOff;
+      const base = (game.baseOffsets && typeof game.baseOffsets[hk] === 'number') ? game.baseOffsets[hk] : defOff;
       const refDate = fmtDate(addDays(anchorDt, base));
       const avg = learnedAvg(game, hk);
       const reset = (avg !== null) ? `<button type="button" class="ghost off-reset" data-hk="${hk}" style="font-size:11px;padding:2px 6px">重置学习(${game.eventHistory[hk].length})</button>` : '<span class="muted" style="font-size:11px">无记录</span>';
@@ -1452,10 +1643,9 @@ function openGameModal(gameId) {
   });
   offHtml += '</div>';
 
-  /* ---- 版本号进位规则（minorMax breakpoints）---- */
-  const bps = (game && game.minorMaxBreakpoints) ? game.minorMaxBreakpoints : [];
-  let bpHtml = '<div class="field"><label>版本号进位规则（从某版本起改用新上限）</label>' +
-    '<div class="muted" style="margin-bottom:6px">默认全局上限见上方「小版本号上限」。此处可添加例外：例如设「从 v5.8 起上限=8」，则 5.8 之后直接变为 6.0（而非 5.9）。后续所有版本自动适配。</div><div id="bp-list">';
+  const bps = game.minorMaxBreakpoints || [];
+  let bpHtml = '<div class="field"><label>版本号进位规则</label>' +
+    '<div class="muted" style="margin-bottom:6px">添加例外：例如设「从 v5.8 起上限=8」，则 5.8 之后直接变为 6.0。</div><div id="bp-list">';
   bps.forEach((bp, i) => {
     bpHtml += `<div class="bp-row" data-i="${i}"><span class="muted" style="font-size:12px">从</span> ` +
       `<input type="text" class="bp-ver" value="${verLabel(game, bp.atTenths)}" placeholder="如 5.8" style="width:64px">` +
@@ -1465,66 +1655,17 @@ function openGameModal(gameId) {
   });
   bpHtml += '</div><button type="button" class="ghost" id="bp-add" style="font-size:12px">+ 添加进位规则</button></div>';
 
-  body.innerHTML = `
-    <div class="modal-tabs">
-      <button type="button" class="mtab active" data-tab="basic">基础</button>
-      <button type="button" class="mtab" data-tab="adv">高级</button>
-      <span class="muted" style="margin-left:auto;align-self:center;font-size:11px">日常调整用「基础」· 自定义图片/偏移/进位规则用「高级」</span>
-    </div>
-    <div id="tab-basic">
-      <div class="field"><label>昵称（必填）</label><input type="text" id="g-name" value="${game ? escapeAttr(game.name) : ''}" placeholder="如 原神"></div>
-      <div class="field"><label>全称（选填）</label><input type="text" id="g-full" value="${game ? escapeAttr(game.fullName || '') : ''}" placeholder="如 Genshin Impact"></div>
-      <div class="field"><label>主题色</label><div class="row"><input type="color" id="g-color" value="${game ? game.color : '#22c55e'}" style="width:50px;padding:2px"><input type="text" id="g-color-t" value="${game ? game.color : '#22c55e'}" style="max-width:100px"></div>
-        <div class="swatch-row">${swatches}</div></div>
-      <div class="field"><label>图标</label>
-        <div class="row">
-          <span id="g-icon-prev" class="icon-preview" style="background:${ic.color || '#22c55e'}"></span>
-          <select id="g-ic-type">
-            <option value="letter"${ic.type === 'letter' ? ' selected' : ''}>首字母/文字</option>
-            <option value="emoji"${ic.type === 'emoji' ? ' selected' : ''}>Emoji</option>
-            <option value="file"${ic.type === 'file' ? ' selected' : ''}>图库 / 本地图标</option>
-            <option value="image"${ic.type === 'image' ? ' selected' : ''}>上传图片 / URL（高级里填）</option>
-          </select>
-        </div>
-        <div class="row" style="margin-top:8px" id="g-ic-text-wrap">
-          <input type="text" id="g-ic-val" value="${ic.type === 'emoji' || ic.type === 'letter' ? escapeAttr(ic.value || '') : ''}" placeholder="文字或 emoji">
-        </div>
-        <div class="icon-gallery hidden" id="g-ic-gallery" style="margin-top:8px"></div>
-        <input type="hidden" id="g-ic-filepath" value="${ic.type === 'file' ? escapeAttr(ic.value || '') : ''}">
-        <div class="muted" style="margin-top:4px">选「图库 / 本地图标」可从统一图标库里点选；用自己的图选「上传图片 / URL」到高级里上传。</div>
-      </div>
-      <div class="field"><label>版本基础周期（天）</label><input type="number" id="g-cycle" min="7" max="120" value="${game ? game.baseCycleDays : DEFAULT_CYCLE}"></div>
-      <div class="field"><label>默认小版本号上限（如 9 = .9 后变 .0；例外在高级里加）</label><input type="number" id="g-minormax" min="0" max="11" value="${game ? game.minorMax : 9}"></div>
-      <div class="field"><label>锚点版本号（如 5.0）</label><input type="text" id="g-anchorv" value="${game ? verLabel(game, game.anchorTenths) : '1.0'}"></div>
-      <div class="field"><label>锚点版本更新日期</label><input type="date" id="g-anchord" value="${game ? game.anchorDate : fmtDate(todayNoon())}"></div>
-    </div>
-    <div id="tab-adv" class="hidden">
-      <div class="field"><label>图标图片（自定义，base64 离线可用，或填 URL）</label>
-        <div class="row">
-          <input type="text" id="g-ic-img-url" placeholder="粘贴图片 URL，或点右侧选文件" value="${ic.type === 'image' ? escapeAttr(ic.value || '') : ''}">
-          <input type="file" id="g-ic-file" accept="image/*">
-        </div>
-        <div class="muted" style="margin-top:4px">仅当基础里图标类型选了「上传图片 / URL」才生效。</div>
-      </div>
-      ${offHtml}
-      ${bpHtml}
-      ${game ? `<div class="field"><button class="danger" id="g-del">删除该游戏</button></div>` : ''}
-    </div>
-  `;
+  return offHtml + bpHtml;
+}
 
-  // 标签切换
-  function switchTab(tab) {
-    body.querySelectorAll('.mtab').forEach(x => x.classList.toggle('active', x.dataset.tab === tab));
-    document.getElementById('tab-basic').classList.toggle('hidden', tab !== 'basic');
-    document.getElementById('tab-adv').classList.toggle('hidden', tab !== 'adv');
-  }
-  body.querySelectorAll('.mtab').forEach(t => t.onclick = () => switchTab(t.dataset.tab));
-
+/** 图标预览同步逻辑（从原 openGameModal 提取） */
+function setupIconSync(body, game) {
   const icType = body.querySelector('#g-ic-type');
   const icFile = body.querySelector('#g-ic-file');
   const icPrev = body.querySelector('#g-icon-prev');
   const colorInp = body.querySelector('#g-color');
   const colorTxt = body.querySelector('#g-color-t');
+
   function loadIconGallery() {
     const gallery = body.querySelector('#g-ic-gallery');
     if (gallery.dataset.loaded) return;
@@ -1540,60 +1681,44 @@ function openGameModal(gameId) {
       if (fp) fp.value = el.dataset.file;
       icType.value = 'file';
       gallery.querySelectorAll('.icon-gallery-item').forEach(x => x.classList.remove('sel'));
-      el.classList.add('sel');
-      syncPrev();
+      el.classList.add('sel'); syncPrev();
     });
     const addBtn = gallery.querySelector('#g-ic-gallery-add');
-    if (addBtn) addBtn.onclick = () => { icType.value = 'image'; switchTab('adv'); syncPrev(); };
+    if (addBtn) addBtn.onclick = () => { icType.value = 'image'; switchGpTab('gp-rules'); syncPrev(); };
   }
+
   function syncPrev() {
     const type = icType.value;
     const nameEl = body.querySelector('#g-name');
     const textWrap = document.getElementById('g-ic-text-wrap');
+    const imgWrap = document.getElementById('g-ic-img-wrap');
     const gallery = document.getElementById('g-ic-gallery');
-    if (type === 'image') {
-      textWrap.classList.add('hidden'); gallery.classList.add('hidden');
-      const url = (document.getElementById('g-ic-img-url') || {}).value || '';
-      icPrev.innerHTML = url ? `<img src="${url}">` : '';
-    } else if (type === 'file') {
-      textWrap.classList.add('hidden'); gallery.classList.remove('hidden');
-      loadIconGallery();
-      const f = (document.getElementById('g-ic-filepath') || {}).value || '';
-      icPrev.innerHTML = f ? `<img src="${f}">` : '';
-    } else {
-      textWrap.classList.remove('hidden'); gallery.classList.add('hidden');
-      const valEl = document.getElementById('g-ic-val');
-      const val = valEl ? valEl.value : '';
-      icPrev.textContent = val || (nameEl && nameEl.value ? nameEl.value[0] : '?');
-    }
+    if (type === 'image') { textWrap.classList.add('hidden'); if (imgWrap) imgWrap.classList.remove('hidden'); gallery.classList.add('hidden');
+      const url = (document.getElementById('g-ic-img-url') || {}).value || ''; icPrev.innerHTML = url ? `<img src="${url}">` : ''; }
+    else if (type === 'file') { textWrap.classList.add('hidden'); if (imgWrap) imgWrap.classList.add('hidden'); gallery.classList.remove('hidden'); loadIconGallery();
+      const f = (document.getElementById('g-ic-filepath') || {}).value || ''; icPrev.innerHTML = f ? `<img src="${f}">` : ''; }
+    else { textWrap.classList.remove('hidden'); if (imgWrap) imgWrap.classList.add('hidden'); gallery.classList.add('hidden');
+      const valEl = document.getElementById('g-ic-val'); const val = valEl ? valEl.value : '';
+      icPrev.textContent = val || (nameEl && nameEl.value ? nameEl.value[0] : '?'); }
     icPrev.style.background = colorInp.value;
   }
-  icType.onchange = () => { if (icType.value === 'image') switchTab('adv'); syncPrev(); };
+
+  icType.onchange = () => { if (icType.value === 'image') switchGpTab('gp-rules'); syncPrev(); };
   const valEl = document.getElementById('g-ic-val');
   if (valEl) valEl.oninput = syncPrev;
-  icFile.onchange = () => {
-    const f = icFile.files[0]; if (!f) return;
-    const r = new FileReader();
-    r.onload = () => { const url = r.result; const t = document.getElementById('g-ic-img-url'); if (t) t.value = url; syncPrev(); };
-    r.readAsDataURL(f);
-  };
+  icFile.onchange = () => { const f = icFile.files[0]; if (!f) return; const r = new FileReader();
+    r.onload = () => { const url = r.result; const t = document.getElementById('g-ic-img-url'); if (t) t.value = url; syncPrev(); }; r.readAsDataURL(f); };
   colorInp.oninput = () => { colorTxt.value = colorInp.value; syncPrev(); };
   colorTxt.oninput = () => { colorInp.value = colorTxt.value; syncPrev(); };
   body.querySelector('#g-name').oninput = syncPrev;
   body.querySelectorAll('.swatch').forEach(s => s.onclick = () => { colorInp.value = s.dataset.c; colorTxt.value = s.dataset.c; syncPrev(); });
-  body.querySelectorAll('.off-reset').forEach(b => b.onclick = () => {
-    const hk = b.dataset.hk;
-    if (game && game.eventHistory) delete game.eventHistory[hk];
-    saveAndRender(); openGameModal(gameId); toast('已重置该事件的学习记录');
-  });
 
-  /* 日期选择器 → 自动算偏移天数 */
+  // 偏移日期选择器联动
   body.querySelectorAll('.off-date').forEach(inp => {
     inp.onchange = () => {
-      const hk = inp.dataset.hk;
-      const picked = parseDate(inp.value);
+      const hk = inp.dataset.hk; const picked = parseDate(inp.value);
       const anch = parseDate(body.querySelector('#g-anchord').value);
-      if (!anch.getTime()) { toast('请先填写锚点版本更新日期'); return; }
+      if (!anch.getTime()) { toast('请先填写锚点日期'); return; }
       const off = diffDays(picked, anch);
       const hidden = body.querySelector('.off-inp[data-hk="' + hk + '"]');
       if (hidden) hidden.value = off;
@@ -1601,101 +1726,210 @@ function openGameModal(gameId) {
       if (calc) calc.textContent = off;
     };
   });
-  /* 锚点日期变化时重新计算所有偏移显示 */
   body.querySelector('#g-anchord').onchange = () => {
-    const anch = parseDate(body.querySelector('#g-anchord').value);
-    if (!anch.getTime()) return;
+    const anch = parseDate(body.querySelector('#g-anchord').value); if (!anch.getTime()) return;
     body.querySelectorAll('.off-date').forEach(inp => {
       const hidden = body.querySelector('.off-inp[data-hk="' + inp.dataset.hk + '"]');
-      const baseOff = hidden ? Number(hidden.value) : 0;
-      inp.value = fmtDate(addDays(anch, baseOff));
+      const baseOff = hidden ? Number(hidden.value) : 0; inp.value = fmtDate(addDays(anch, baseOff));
     });
   };
+  body.querySelectorAll('.off-reset').forEach(b => b.onclick = () => {
+    const hk = b.dataset.hk; const game = _gpGameId ? state.games.find(g => g.id === _gpGameId) : null;
+    if (game && game.eventHistory) delete game.eventHistory[hk];
+    saveAndRender(); openGamePanel(_gpGameId); toast('已重置学习记录');
+  });
 
-  /* 进位规则：增删 */
+  // 进位规则增删
   body.querySelector('#bp-add').onclick = () => {
-    const list = body.querySelector('#bp-list');
-    const row = document.createElement('div');
-    row.className = 'bp-row';
-    row.innerHTML = `<span class="muted" style="font-size:12px">从</span> ` +
+    const list = body.querySelector('#bp-list'); const row = document.createElement('div');
+    row.className = 'bp-row'; row.innerHTML = `<span class="muted" style="font-size:12px">从</span> ` +
       `<input type="text" class="bp-ver" placeholder="如 5.8" style="width:64px">` +
       `<span class="muted" style="font-size:12px">起 上限=</span>` +
       `<input type="number" class="bp-mm" min="0" max="11" value="8" style="width:48px">` +
       `<button type="button" class="ghost bp-del" style="font-size:11px;padding:1px 6px;color:#dc2626">✕</button>`;
-    list.appendChild(row);
-    row.querySelector('.bp-del').onclick = () => row.remove();
+    list.appendChild(row); row.querySelector('.bp-del').onclick = () => row.remove();
   };
   body.querySelectorAll('.bp-del').forEach(b => b.onclick = () => b.parentElement.remove());
 
-  /* 若已有图标为图片，默认打开高级标签 */
-  if (ic.type === 'image') switchTab('adv');
+  if (ic && ic.type === 'image') switchGpTab('gp-rules');
   syncPrev();
-
-  document.getElementById('modal-save').onclick = () => {
-    const name = body.querySelector('#g-name').value.trim();
-    if (!name) { toast('请填写昵称'); return; }
-    const color = colorInp.value;
-    const type = icType.value;
-    let ival;
-    if (type === 'image') {
-      ival = (document.getElementById('g-ic-img-url') || {}).value || '';
-      if (!ival) { toast('图片模式请在「高级」里上传或填 URL'); switchTab('adv'); return; }
-    } else if (type === 'file') {
-      ival = (document.getElementById('g-ic-filepath') || {}).value || '';
-      if (!ival) { toast('请在图库里点选一个图标，或改用其他图标类型'); return; }
-    } else {
-      ival = (document.getElementById('g-ic-val') || {}).value || '';
-      if (!ival) ival = name[0];
-    }
-    const cycle = Math.max(7, Math.min(120, Number(body.querySelector('#g-cycle').value) || DEFAULT_CYCLE));
-    const minorMax = Math.max(0, Math.min(11, Number(body.querySelector('#g-minormax').value) || 9));
-    const anchorTenths = Math.round(parseFloat(body.querySelector('#g-anchorv').value || '1.0') * 10);
-    const anchorDate = body.querySelector('#g-anchord').value;
-    const baseOffsets = {};
-    body.querySelectorAll('.off-inp').forEach(inp => { baseOffsets[inp.dataset.hk] = Number(inp.value) || 0; });
-    /* 收集进位规则 */
-    const minorMaxBreakpoints = [];
-    body.querySelectorAll('.bp-row').forEach(row => {
-      const verStr = row.querySelector('.bp-ver').value.trim();
-      const mm = Number(row.querySelector('.bp-mm').value);
-      if (verStr && !isNaN(mm)) {
-        const parts = verStr.split('.');
-        const atMaj = parseInt(parts[0]) || 0;
-        const atMin = parseInt(parts[1]) || 0;
-        const aMaj = Math.floor(game ? game.anchorTenths / 10 : (atMaj * 10));
-        const aMin = game ? (game.anchorTenths % 10) : 0;
-        // 从锚点推算目标 tenths（近似；精确值由用户在版本弹窗里调）
-        const eff = atMin - aMin + (atMaj - aMaj) * (game ? (game.minorMax || 9) + 1 : 10);
-        minorMaxBreakpoints.push({ atTenths: game ? (game.anchorTenths + eff) : (atMaj * 10 + atMin), minorMax: mm });
-      }
-    });
-
-    if (game) {
-      game.name = name; game.fullName = body.querySelector('#g-full').value.trim();
-      game.color = color; game.icon = { type, value: ival, color };
-      game.baseCycleDays = cycle; game.minorMax = minorMax; game.anchorTenths = anchorTenths; game.anchorDate = anchorDate;
-      game.baseOffsets = baseOffsets; game.minorMaxBreakpoints = minorMaxBreakpoints;
-    } else {
-      const ng = {
-        id: 'g_' + Math.random().toString(36).slice(2, 9),
-        name, fullName: body.querySelector('#g-full').value.trim(), color,
-        icon: { type, value: ival, color }, baseCycleDays: cycle, minorMax,
-        anchorTenths, anchorDate, eventHistory: {}, baseOffsets, eventTitles: {}, versionDurations: {}, verNotes: {}, verEventOffsets: {}, verUpdateDates: {}, hiddenEventKeys: [], verHiddenEvents: {},
-        minorMaxBreakpoints
-      };
-      state.games.push(ng); visibleGames[ng.id] = true; state.visibleGames = visibleGames;
-    }
-    saveAndRender(); hideModal(); toast('已保存');
-  };
-  const del = body.querySelector('#g-del');
-  if (del) del.onclick = () => {
-    if (!confirm('确定删除该游戏及其全部版本数据？')) return;
-    state.games = state.games.filter(g => g.id !== gameId);
-    delete visibleGames[gameId];
-    saveAndRender(); hideModal(); toast('已删除');
-  };
-  showModal();
 }
+
+function switchGpTab(tab) {
+  _gpCurTab = tab;
+  const body = document.getElementById('modal-body');
+  body.querySelectorAll('.mtab').forEach(x => {
+    const canSwitch = !x.disabled;
+    x.classList.toggle('active', x.dataset.tab === tab && canSwitch);
+  });
+  ['gp-basic','gp-versions','gp-rules','gp-danger'].forEach(t => {
+    const el = document.getElementById('tab-' + t);
+    if (el) el.classList.toggle('hidden', t !== tab);
+  });
+  if (tab === 'gp-versions') {
+    const game = _gpGameId ? state.games.find(g => g.id === _gpGameId) : null;
+    const container = document.getElementById('gp-ver-table-container');
+    if (container && game) container.innerHTML = buildGpVersionTable(game);
+    bindGpVersionEvents();
+  }
+}
+
+/** 保存游戏面板的所有修改 */
+function saveGamePanel(game) {
+  const body = document.getElementById('modal-body');
+
+  // --- 基本信息 ---
+  const name = body.querySelector('#g-name').value.trim();
+  if (!name) { toast('请填写昵称'); switchGpTab('gp-basic'); return; }
+  const colorInp = body.querySelector('#g-color');
+  const icType = body.querySelector('#g-ic-type');
+  let ival;
+  if (icType.value === 'image') {
+    ival = (document.getElementById('g-ic-img-url') || {}).value || '';
+    if (!ival) { toast('请在「偏移与规则」中上传或填 URL'); switchGpTab('gp-rules'); return; }
+  } else if (icType.value === 'file') {
+    ival = (document.getElementById('g-ic-filepath') || {}).value || '';
+    if (!ival) { toast('请在图库里点选一个图标'); switchGpTab('gp-basic'); return; }
+  } else { ival = (document.getElementById('g-ic-val') || {}).value || ''; if (!ival) ival = name[0]; }
+  const cycle = Math.max(7, Math.min(120, Number(body.querySelector('#g-cycle').value) || DEFAULT_CYCLE));
+  const minorMax = Math.max(0, Math.min(11, Number(body.querySelector('#g-minormax').value) || 9));
+  const anchorTenths = Math.round(parseFloat(body.querySelector('#g-anchorv').value || '1.0') * 10);
+  const anchorDate = body.querySelector('#g-anchord').value;
+  const baseOffsets = {};
+  body.querySelectorAll('.off-inp').forEach(inp => { baseOffsets[inp.dataset.hk] = Number(inp.value) || 0; });
+
+  // 进位规则
+  const minorMaxBreakpoints = [];
+  body.querySelectorAll('.bp-row').forEach(row => {
+    const verStr = row.querySelector('.bp-ver').value.trim();
+    const mm = Number(row.querySelector('.bp-mm').value);
+    if (verStr && !isNaN(mm)) {
+      const parts = verStr.split('.');
+      const atMaj = parseInt(parts[0]) || 0; const atMin = parseInt(parts[1]) || 0;
+      const aMaj = Math.floor(game ? game.anchorTenths / 10 : (atMaj * 10));
+      const aMin = game ? (game.anchorTenths % 10) : 0;
+      const eff = atMin - aMin + (atMaj - aMaj) * (game ? (game.minorMax || 9) + 1 : 10);
+      minorMaxBreakpoints.push({ atTenths: game ? (game.anchorTenths + eff) : (atMaj * 10 + atMin), minorMax: mm });
+    }
+  });
+
+  if (game) {
+    game.name = name; game.fullName = body.querySelector('#g-full').value.trim();
+    game.color = colorInp.value; game.icon = { type: icType.value, value: ival, color: colorInp.value };
+    game.baseCycleDays = cycle; game.minorMax = minorMax; game.anchorTenths = anchorTenths; game.anchorDate = anchorDate;
+    game.baseOffsets = baseOffsets; game.minorMaxBreakpoints = minorMaxBreakpoints;
+  } else {
+    const ng = {
+      id: 'g_' + Math.random().toString(36).slice(2, 9), name,
+      fullName: body.querySelector('#g-full').value.trim(), color: colorInp.value,
+      icon: { type: icType.value, value: ival, color: colorInp.value },
+      baseCycleDays: cycle, minorMax, anchorTenths, anchorDate,
+      eventHistory: {}, baseOffsets, eventTitles: {}, versionDurations: {},
+      verNotes: {}, verEventOffsets: {}, verUpdateDates: {}, hiddenEventKeys: [], verHiddenEvents: {},
+      minorMaxBreakpoints
+    };
+    state.games.push(ng); visibleGames[ng.id] = true; state.visibleGames = visibleGames;
+    _gpGameId = ng.id; game = ng;
+  }
+
+  // --- 版本日程表数据 ---
+  saveGpVersionData(game);
+
+  saveAndRender(); hideModal(); toast('已保存');
+}
+
+/** 从版本日程表 DOM 收集所有修改并写入 game 对象 */
+function saveGpVersionData(game) {
+  // 更新日期
+  document.querySelectorAll('.gp-inp-date[data-field="updateDate"]').forEach(inp => {
+    const tenths = Number(inp.dataset.tenths);
+    const val = inp.value;
+    if (val) {
+      if (!game.verUpdateDates) game.verUpdateDates = {};
+      game.verUpdateDates[String(tenths)] = val;
+    }
+  });
+
+  // 事件日期 + 标题
+  document.querySelectorAll('.gp-ev-date').forEach(inp => {
+    const tenths = Number(inp.dataset.tenths);
+    const hk = inp.dataset.hk;
+    const dateStr = inp.value;
+    if (!dateStr) return;
+    const v = genGameVersions(game).find(v => v.tenths === tenths);
+    if (!v) return;
+    const newDate = parseDate(dateStr);
+    const absOff = diffDays(newDate, v.updateDate);
+    let defOff = null;
+    for (const def of activeEvents()) {
+      const idx = def.offsets.findIndex((o, i) => { const k = def.key + (def.offsets.length > 1 ? '_' + i : ''); return k === hk; });
+      if (idx >= 0) { defOff = def.offsets[idx]; break; }
+    }
+    const customBase = getDefaultOffset(game, hk);
+    const effectiveDefault = (customBase !== null) ? customBase : defOff;
+    if (absOff !== effectiveDefault) {
+      if (!game.verEventOffsets) game.verEventOffsets = {};
+      game.verEventOffsets[tenths + '|' + hk] = absOff;
+    } else { if (game.verEventOffsets) delete game.verEventOffsets[tenths + '|' + hk]; }
+  });
+
+  // 事件标题
+  document.querySelectorAll('.gp-inp-title').forEach(inp => {
+    const tenths = Number(inp.dataset.tenths);
+    const hk = inp.dataset.hk;
+    const val = inp.value.trim();
+    if (!game.eventTitles) game.eventTitles = {};
+    const tkey = evTitleKey(tenths, hk);
+    if (val) game.eventTitles[tkey] = val; else delete game.eventTitles[tkey];
+  });
+
+  // 版本备注
+  document.querySelectorAll('.gp-inp-note').forEach(inp => {
+    const tenths = Number(inp.dataset.tenths);
+    const val = inp.value.trim();
+    if (!game.verNotes) game.verNotes = {};
+    if (val) game.verNotes[String(tenths)] = val; else delete game.verNotes[String(tenths)];
+  });
+
+  // 隐藏/恢复事件
+  document.querySelectorAll('.gp-hide-ev').forEach(cb => {
+    const tenths = Number(cb.dataset.tenths);
+    const hk = cb.dataset.hk;
+    const hideKey = tenths + '|' + hk;
+    if (!game.verHiddenEvents) game.verHiddenEvents = {};
+    if (cb.checked) game.verHiddenEvents[hideKey] = true; else delete game.verHiddenEvents[hideKey];
+  });
+
+  // 恢复默认（↺ 按钮）— 在 onclick 中直接处理，不在此处
+}
+
+/** 绑定版本日程表内的交互事件 */
+function bindGpVersionEvents() {
+  // 恢复默认按钮
+  document.querySelectorAll('.gp-reset-ver').forEach(btn => {
+    btn.onclick = () => {
+      const game = state.games.find(g => g.id === btn.dataset.game);
+      if (!game) return;
+      const tenths = Number(btn.dataset.tenths);
+      delete game.versionDurations[String(tenths)];
+      if (game.verUpdateDates) delete game.verUpdateDates[String(tenths)];
+      // 清除该版本所有逐事件覆盖
+      if (game.verEventOffsets) {
+        Object.keys(game.verEventOffsets).forEach(k => {
+          if (k.startsWith(tenths + '|')) delete game.verEventOffsets[k];
+        });
+      }
+      saveAndRender();
+      openGamePanel(game.id, tenths);
+      toast('已恢复该版本为默认值');
+    };
+  });
+}
+
+/* openGameModal → 兼容入口，统一调用 openGamePanel */
+let editingGameId = null;
+function openGameModal(gameId) { editingGameId = gameId || null; openGamePanel(gameId); }
+
 
 /* ----------------------------- 弹窗基础 ----------------------------- */
 function showModal() {
