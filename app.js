@@ -223,7 +223,8 @@ function supabaseAdapter() {
       if (error) {
         console.warn('cloud push err', error);
         toast('云端同步失败：' + (error.message || error.code || '未知错误'));
-      } else { toast('已同步到云端'); }
+      }
+      // 后台自动同步成功时静默，不弹 toast；仅失败时提示（避免切换页面等操作时频繁打扰）
     }
   };
 }
