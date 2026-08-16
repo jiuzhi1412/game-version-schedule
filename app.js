@@ -511,7 +511,17 @@ async function init() {
     }
     cleaned.push(e);
   });
-  if (changed) { state.customEvents = cleaned; Storage.save(state); }
+  if (changed) { state.customEvents = cleaned; Storage.save(state); persistToFile(); }
+  // 清理各游戏 hiddenEventKeys 中已失效的旧 key（banner_1/裸char_pv/裸char_preview）
+  const staleKeys = ['banner_1', 'char_pv', 'char_preview'];
+  state.games.forEach(g => {
+    if (Array.isArray(g.hiddenEventKeys) && g.hiddenEventKeys.some(k => staleKeys.includes(k))) {
+      const before = g.hiddenEventKeys.length;
+      g.hiddenEventKeys = g.hiddenEventKeys.filter(k => !staleKeys.includes(k));
+      if (g.hiddenEventKeys.length !== before) { changed = true; }
+    }
+  });
+  if (changed) { Storage.save(state); persistToFile(); }
   state.games.forEach(migrateGame);
   visibleGames = state.visibleGames;
   render();
