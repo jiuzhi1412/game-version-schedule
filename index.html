@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>游戏版本周期日程表</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1>🎮 游戏版本周期日程表</h1>
+    <div class="seg">
+      <button id="btn-timeline" class="active">时间轴</button>
+      <button id="btn-calendar">月历</button>
+      <button id="btn-list">列表</button>
+    </div>
+    <div class="toolbar">
+      <input type="text" id="search" class="search-box" placeholder="搜索游戏 / 事件 / 角色名…">
+      <button id="btn-add" class="primary">+ 添加游戏</button>
+      <button id="btn-notif">开启桌面提醒</button>
+      <div class="dd" id="data-dd">
+        <button id="btn-data">⬇ 数据</button>
+        <div class="dd-menu hidden" id="data-dd-menu">
+          <button type="button" data-act="export">导出 JSON（手动备份）</button>
+          <button type="button" data-act="import">导入 JSON（恢复/覆盖）</button>
+          <button type="button" data-act="backup">本机自动备份设置</button>
+        </div>
+      </div>
+      <button id="btn-settings">设置</button>
+      <span id="backup-badge" class="backup-badge">⚠ 未设置本机备份</span>
+      <input type="file" id="file-input" accept="application/json" class="hidden">
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="filter-bar" id="filter-bar"></div>
+    <div class="view-controls hidden" id="view-controls"></div>
+    <div id="view-timeline"></div>
+    <div id="view-calendar" class="hidden"></div>
+    <div id="view-list" class="hidden"></div>
+  </div>
+
+  <div class="modal-mask" id="modal-mask">
+    <div class="modal">
+      <h2 id="modal-title">标题</h2>
+      <div id="modal-body"></div>
+      <div class="modal-actions">
+        <button id="modal-cancel">取消</button>
+        <button id="modal-save" class="primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49" defer></script>
+  <script src="app.js"></script>
+</body>
+</html>
