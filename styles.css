@@ -348,6 +348,8 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 .ev-custom { color: var(--primary); font-size: 11px; margin-top: 2px; }
 .ver-table tr.vt-past td { color: #94a3b8; background: #f8fafc; }
 .ver-table tr.vt-past td.vt-ver { color: #64748b; }
+.ver-table tr.vt-current td { background: #fefce8; font-weight: 600; }
+.ver-table tr.vt-current td.vt-ver { color: #ca8a04; }
 .ver-table tr.vt-divider td { background: #eef2ff; color: #6366f1; font-weight: 700; text-align: center; letter-spacing: 2px; padding: 3px; }
 
 /* ---------- 进位规则行 ---------- */

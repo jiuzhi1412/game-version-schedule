@@ -806,18 +806,21 @@ function renderList() {
     const tMs = addDays(todayNoon(), -1).getTime();
     const past = all.filter(v => v.updateDate.getTime() < tMs);
     const future = all.filter(v => v.updateDate.getTime() >= tMs);
-    const pastN = past.slice(-(state.listPast || 2));
+    const pastN = past.slice(-(state.listPast || 2)).reverse(); // 过去版本：从旧到新排列
     const futureN = future.slice(0, state.listCount || 8);
     const cols = 2 + activeEvents().reduce((a, d) => a + d.offsets.length, 0);
     let rows = '';
     let dividerDone = false;
+    const currentIdx = pastN.length > 0 ? pastN.length - 1 : -1; // 最后一个过去版本 = 当前版本
     [...pastN, ...futureN].forEach((v, i) => {
       if (!dividerDone && pastN.length && futureN.length && i === pastN.length) {
         rows += `<tr class="vt-divider"><td colspan="${cols}">— 今天 —</td></tr>`;
         dividerDone = true;
       }
-      const pastCls = i < pastN.length ? ' class="vt-past"' : '';
-      rows += `<tr${pastCls}><td class="vt-ver">${v.label}</td><td>${fmtDate(v.updateDate)}</td>`;
+      // 当前版本（最近的过去版本）高亮，其他过去版本灰，未来正常
+      const isCurrent = (i === currentIdx);
+      const rowCls = isCurrent ? ' class="vt-current"' : (i < pastN.length ? ' class="vt-past"' : '');
+      rows += `<tr${rowCls}><td class="vt-ver">${isCurrent ? '📍 ' : ''}${v.label}</td><td>${fmtDate(v.updateDate)}</td>`;
       v.events.forEach(ev => {
         const cd = diffDays(ev.date, todayNoon());
         const cdTxt = cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd));
