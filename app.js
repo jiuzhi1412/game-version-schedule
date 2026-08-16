@@ -804,10 +804,12 @@ function renderList() {
   list.forEach(game => {
     const all = genGameVersions(game);
     const tMs = addDays(todayNoon(), -1).getTime();
-    const past = all.filter(v => v.updateDate.getTime() < tMs);
-    const future = all.filter(v => v.updateDate.getTime() >= tMs);
-    // 取过去版本：末尾 N 个（最新的），其中最后一个就是「当前版本」
-    const pastN = past.slice(-(state.listPast || 2));   // 旧→新，如 [6.6, 6.8] 或 [6.8] 或 [6.8, 7.0]
+    // 按日期排序（genGameVersions 返回顺序不保证是时间正序）
+    const sorted = [...all].sort((a, b) => a.updateDate.getTime() - b.updateDate.getTime());
+    const past = sorted.filter(v => v.updateDate.getTime() < tMs);
+    const future = sorted.filter(v => v.updateDate.getTime() >= tMs);
+    // 取过去版本：最新的 N 个（末尾），其中最后一个就是「当前版本」
+    const pastN = past.slice(-(state.listPast || 2));   // 已按日期正序：如 [6.6, 6.8] 或 [6.8] 或 [6.8, 7.0]
     const currentVer = pastN.length > 0 ? pastN[pastN.length - 1] : null;  // 最近的一个 = 当前运行中版本
     const olderVersions = pastN.slice(0, -1);  // 排除当前版本的更早历史
     const futureN = future.slice(0, state.listCount || 8);
