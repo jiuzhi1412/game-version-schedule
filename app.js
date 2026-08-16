@@ -1446,13 +1446,17 @@ function openGamePanel(gameId, focusTenths) {
   body.innerHTML = `
     <div class="modal-tabs">
       <button type="button" class="mtab active" data-tab="gp-basic">📋 基本信息</button>
-      <button type="button" class="mtab" data-tab="gp-versions">📅 版本日程表</button>
       <button type="button" class="mtab ${!game ? 'muted-tab' : ''}" data-tab="gp-rules" ${!game ? 'disabled' : ''}>⚙️ 偏移与规则</button>
       <button type="button" class="mtab ${!game ? 'muted-tab' : ''}" data-tab="gp-danger" ${!game ? 'disabled' : ''}>🗑️ 危险操作</button>
     </div>
 
     <!-- Tab 1: 基本信息 -->
     <div id="tab-gp-basic">
+      ${game ? `<div class="gp-quick-bar">
+        <button type="button" class="gp-qbtn" id="gp-q-rules" title="调整事件默认偏移、进位规则">⚙️ 偏移与规则</button>
+        <button type="button" class="gp-qbtn" id="gp-q-cols" title="设置列表中显示/隐藏的事件列">📋 列设置</button>
+        <button type="button" class="gp-qbtn" id="gp-q-edit" title="切换列表视图的编辑模式">✏️ 列表编辑</button>
+      </div>` : ''}
       <div class="field"><label>昵称（必填）</label><input type="text" id="g-name" value="${game ? escapeAttr(game.name) : ''}" placeholder="如 原神"></div>
       <div class="field"><label>全称（选填）</label><input type="text" id="g-full" value="${game ? escapeAttr(game.fullName || '') : ''}" placeholder="如 Genshin Impact"></div>
       <div class="field"><label>主题色</label><div class="row"><input type="color" id="g-color" value="${game ? game.color : '#22c55e'}" style="width:50px;padding:2px"><input type="text" id="g-color-t" value="${game ? game.color : '#22c55e'}" style="max-width:100px"></div>
@@ -1484,14 +1488,7 @@ function openGamePanel(gameId, focusTenths) {
       <div class="field"><label>锚点版本更新日期</label><input type="date" id="g-anchord" value="${game ? game.anchorDate : fmtDate(todayNoon())}"></div>
     </div>
 
-    <!-- Tab 2: 版本日程表（可编辑表格） -->
-    <div id="tab-gp-versions" class="hidden">
-      <div class="gp-ver-table-wrap" id="gp-ver-table-container">
-        ${game ? buildGpVersionTable(game, focusTenths) : '<p class="muted">请先保存基本信息后再编辑版本日程。</p>'}
-      </div>
-    </div>
-
-    <!-- Tab 3: 默认偏移与规则 -->
+    <!-- Tab 2: 默认偏移与规则 -->
     <div id="tab-gp-rules" class="hidden">
       ${game ? buildGpRulesTab(game) : ''}
     </div>
@@ -1512,20 +1509,22 @@ function openGamePanel(gameId, focusTenths) {
       x.style.opacity = x.disabled ? '.4' : '1';
       x.style.pointerEvents = x.disabled ? 'none' : 'auto';
     });
-    ['gp-basic','gp-versions','gp-rules','gp-danger'].forEach(t => {
+    ['gp-basic','gp-rules','gp-danger'].forEach(t => {
       const el = document.getElementById('tab-' + t);
       if (el) el.classList.toggle('hidden', t !== tab);
     });
-    // 切到版本表时重新渲染（数据可能已变）
-    if (tab === 'gp-versions' && game) {
-      const container = document.getElementById('gp-ver-table-container');
-      if (container) container.innerHTML = buildGpVersionTable(game, focusTenths);
-      bindGpVersionEvents();
-    }
   }
   body.querySelectorAll('.mtab').forEach(t => {
     if (!t.disabled) t.onclick = () => switchTab(t.dataset.tab);
   });
+
+  /* ---- 快捷操作栏 ---- */
+  const qRules = body.querySelector('#gp-q-rules');
+  if (qRules) qRules.onclick = () => switchGpTab('gp-rules');
+  const qCols = body.querySelector('#gp-q-cols');
+  if (qCols) qCols.onclick = () => { hideModal(); setTimeout(() => openColSettings(gameId), 100); };
+  const qEdit = body.querySelector('#gp-q-edit');
+  if (qEdit) qEdit.onclick = () => { hideModal(); toggleListEditMode(); };
 
   /* ---- 基本信息：图标预览同步（复用原逻辑）---- */
   setupIconSync(body, game, ic);
@@ -1540,90 +1539,10 @@ function openGamePanel(gameId, focusTenths) {
     saveAndRender(); hideModal(); toast('已删除');
   };
 
-  // 初始渲染的版本表（即使当前停在基本信息 Tab）也需绑定 ↺ 等交互
-  bindGpVersionEvents();
   switchTab(_gpCurTab);
   showModal();
 }
 
-/** 构建 Tab2 版本日程表的 HTML */
-function buildGpVersionTable(game, focusTenths) {
-  const all = genGameVersions(game);
-  const sorted = [...all].sort((a, b) => a.updateDate.getTime() - b.updateDate.getTime());
-  const todayMs = todayNoon().getTime();
-  // 只显示合理范围内的版本（过去30个 + 未来30个）
-  const display = sorted.filter(v => {
-    const days = diffDays(v.updateDate, todayNoon());
-    return days >= -180 && days <= 400;
-  });
-  if (!display.length) return '<p class="muted">暂无版本数据</p>';
-
-  const gEvts = gameActiveEvents(game);
-  const visibleEvKeys = new Set();
-  gEvts.forEach(def => {
-    def.offsets.forEach((_, idx) => {
-      const origKey = def._origKey || def.key;
-      visibleEvKeys.add(origKey + '_' + idx);
-    });
-  });
-
-  // 表头
-  let head = '<tr><th>版本</th><th>更新日期</th>';
-  gEvts.forEach(def => def.offsets.forEach((o, idx) => {
-    const origKey = def._origKey || def.key;
-    head += `<th><span class="chip-dot" style="background:${eventColor(origKey,idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(def.name + (def.sub ? def.sub[idx] : ''))}</th>`;
-  }));
-  head += '<th>备注</th><th style="width:28px"></th></tr>';
-
-  // 行
-  let rows = '';
-  display.forEach(v => {
-    const isCurrent = v.updateDate.getTime() <= todayMs && v.updateDate.getTime() > addDays(todayNoon(), -(game.baseCycleDays || 42)).getTime();
-    const isPast = v.updateDate.getTime() < todayMs;
-    const rowCls = isCurrent ? 'vt-current' : (isPast ? 'vt-past' : '');
-    const verLabelHtml = (isCurrent ? '📍 ' : '') + v.label;
-
-    // 更新日期
-    const vud = game.verUpdateDates && game.verUpdateDates[String(v.tenths)];
-    const updateDateStr = vud || fmtDate(v.updateDate);
-
-    // 备注行
-    const noteVal = (game.verNotes && game.verNotes[String(v.tenths)]) || '';
-
-    let cells = `<td class="vt-ver">${verLabelHtml}</td>`;
-    cells += `<td><input type="date" class="gp-inp-date" data-game="${game.id}" data-tenths="${v.tenths}" data-field="updateDate" value="${updateDateStr}"></td>`;
-
-    // 事件列
-    v.events.forEach(ev => {
-      const ek = ev.defKey + '_' + (ev.sub ?? 0);
-      if (!visibleEvKeys.has(ek)) return; // 该游戏隐藏了此列
-      if (ev.hidden) {
-        cells += `<td class="vt-empty"><label class="le-hide-check"><input type="checkbox" class="gp-hide-ev" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}" /> 恢复</label></td>`;
-      } else {
-        const tkey = evTitleKey(v.tenths, ev.historyKey);
-        const custom = (game.eventTitles && game.eventTitles[tkey]) || '';
-        cells += `<td>
-          <input type="date" class="gp-inp-date gp-ev-date" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}" value="${fmtDate(ev.date)}">
-          <input type="text" class="gp-inp-title" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}" placeholder="备注" value="${escapeAttr(custom)}" title="自定义标题/备注">
-          <label class="le-hide-check" style="font-size:11px;margin-top:2px">
-            <input type="checkbox" class="gp-hide-ev" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}" /> 隐藏
-          </label>
-        </td>`;
-      }
-    });
-
-    // 备注 + 操作
-    cells += `<td><input type="text" class="gp-inp-note" data-game="${game.id}" data-tenths="${v.tenths}" placeholder="可选备注" value="${escapeAttr(noteVal)}"></td>`;
-    cells += `<td><button class="ghost gp-reset-ver" data-game="${game.id}" data-tenths="${v.tenths}" title="恢复默认日期和时长">↺</button></td>`;
-
-    rows += `<tr class="${rowCls}" data-tenths="${v.tenths}">${cells}</tr>`;
-  });
-
-  return `<div class="muted" style="margin-bottom:8px;font-size:12px">直接修改表格中的日期和备注，点保存生效。隐藏某版本的某事件勾选「隐藏」即可。↺ 按钮恢复该版本的默认值。</div>
-    <div class="calendar-scroll"><table class="ver-table gp-editable-table"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
-}
-
-/** 构建 Tab3 偏移与规则的 HTML */
 function buildGpRulesTab(game) {
   const anchorDt = parseDate(game.anchorDate);
   let offHtml = '<div class="field"><label>事件默认日期 / 偏移（相对版本更新日）</label>' +
@@ -1763,16 +1682,10 @@ function switchGpTab(tab) {
     const canSwitch = !x.disabled;
     x.classList.toggle('active', x.dataset.tab === tab && canSwitch);
   });
-  ['gp-basic','gp-versions','gp-rules','gp-danger'].forEach(t => {
+  ['gp-basic','gp-rules','gp-danger'].forEach(t => {
     const el = document.getElementById('tab-' + t);
     if (el) el.classList.toggle('hidden', t !== tab);
   });
-  if (tab === 'gp-versions') {
-    const game = _gpGameId ? state.games.find(g => g.id === _gpGameId) : null;
-    const container = document.getElementById('gp-ver-table-container');
-    if (container && game) container.innerHTML = buildGpVersionTable(game);
-    bindGpVersionEvents();
-  }
 }
 
 /** 保存游戏面板的所有修改 */
@@ -1902,29 +1815,6 @@ function saveGpVersionData(game) {
   });
 
   // 恢复默认（↺ 按钮）— 在 onclick 中直接处理，不在此处
-}
-
-/** 绑定版本日程表内的交互事件 */
-function bindGpVersionEvents() {
-  // 恢复默认按钮
-  document.querySelectorAll('.gp-reset-ver').forEach(btn => {
-    btn.onclick = () => {
-      const game = state.games.find(g => g.id === btn.dataset.game);
-      if (!game) return;
-      const tenths = Number(btn.dataset.tenths);
-      delete game.versionDurations[String(tenths)];
-      if (game.verUpdateDates) delete game.verUpdateDates[String(tenths)];
-      // 清除该版本所有逐事件覆盖
-      if (game.verEventOffsets) {
-        Object.keys(game.verEventOffsets).forEach(k => {
-          if (k.startsWith(tenths + '|')) delete game.verEventOffsets[k];
-        });
-      }
-      saveAndRender();
-      openGamePanel(game.id, tenths);
-      toast('已恢复该版本为默认值');
-    };
-  });
 }
 
 /* openGameModal → 兼容入口，统一调用 openGamePanel */
