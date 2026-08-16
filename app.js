@@ -11,7 +11,7 @@
  * 这是默认模板；用户可在设置中增删隐藏，实际使用 state.customEvents。 */
 const EVENT_DEFS_TEMPLATE = [
   { key: 'version_update',  name: '版本更新', offsets: [0] },
-  { key: 'banner',          name: '卡池更新', offsets: [0, 21], sub: ['上半', '下半'] },
+  { key: 'banner',          name: '卡池更新', offsets: [0], sub: ['上半'] },
   { key: 'char_tease',      name: '新角色爆料', offsets: [33] },
   // 角色预告/PV 不再作为独立顶层事件，改为按 game.charCount 动态生成（见 generateCharEvents）
   { key: 'version_preview', name: '版本前瞻', offsets: [35] },
@@ -50,7 +50,7 @@ function activeEvents() {
 
 /**
  * 获取某个游戏生效的事件定义列表（全局隐藏 + 该游戏单独隐藏的都过滤掉）
- * game.hiddenEventKeys 存的是要隐藏的事件子 key，如 'banner_1' 表示卡池下半
+ * game.hiddenEventKeys 存的是要隐藏的事件子 key，如 'char_banner_1' 表示角色二卡池
  */
 function gameActiveEvents(game) {
   const hidden = (game && game.hiddenEventKeys) || [];
@@ -499,9 +499,19 @@ async function init() {
     state.customEvents = JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE));
   }
   // 清除旧静态 char_preview/char_pv（已改为按 charCount 动态生成，避免重复列）
-  const oldLen = state.customEvents.length;
-  state.customEvents = state.customEvents.filter(e => e.key !== 'char_preview' && e.key !== 'char_pv');
-  if (state.customEvents.length !== oldLen) Storage.save(state); // 有清理则立即保存
+  // 同时将旧 banner 的双 offset（上半+下半）截断为单 offset（仅上半），下半已被角色卡池替代
+  let changed = false;
+  const cleaned = [];
+  state.customEvents.forEach(e => {
+    if (e.key === 'char_preview' || e.key === 'char_pv') { changed = true; return; }
+    if (e.key === 'banner' && Array.isArray(e.offsets) && e.offsets.length > 1) {
+      cleaned.push({ ...e, offsets: [e.offsets[0]], sub: e.sub ? [e.sub[0]] : ['上半'] });
+      changed = true;
+      return;
+    }
+    cleaned.push(e);
+  });
+  if (changed) { state.customEvents = cleaned; Storage.save(state); }
   state.games.forEach(migrateGame);
   visibleGames = state.visibleGames;
   render();
@@ -735,7 +745,7 @@ function reorderEvents(fromKey, toKey) {
 }
 
 /* ----------------------------- 视图统一设置条 + 时间轴侧栏 ----------------------------- */
-const SHORT = { version_update: '更新', banner_0: '上半', banner_1: '下半', char_tease: '爆料', char_preview: '预告', char_pv: 'PV', version_preview: '前瞻',
+const SHORT = { version_update: '更新', banner_0: '上半', char_tease: '爆料', version_preview: '前瞻',
   char_banner_0: '角色一卡池', char_banner_1: '角色二卡池', char_banner_2: '角色三卡池', char_banner_3: '角色四卡池', char_banner_4: '角色五卡池', char_banner_5: '角色六卡池',
   char_preview_0: '一预告', char_preview_1: '二预告', char_preview_2: '三预告', char_preview_3: '四预告', char_preview_4: '五预告', char_preview_5: '六预告',
   char_pv_0: '一PV', char_pv_1: '二PV', char_pv_2: '三PV', char_pv_3: '四PV', char_pv_4: '五PV', char_pv_5: '六PV' };
@@ -2123,7 +2133,7 @@ function openSettings() {
     </div>
     <div id="tab-s-events" class="hidden">
       <div class="field"><label>版本周期内的事件类型（可增删、隐藏/显示、改名称和偏移天数）</label>
-        <div class="muted" style="margin-bottom:8px">隐藏后该事件不会在时间轴/月历/列表中显示。偏移天数为相对「版本更新日」的天数，多个值用逗号分隔（如卡池上半+下半=0,21）。修改后所有游戏立即生效。</div>
+        <div class="muted" style="margin-bottom:8px">隐藏后该事件不会在时间轴/月历/列表中显示。偏移天数为相对「版本更新日」的天数，多个值用逗号分隔。角色相关事件（卡池/预告/PV）由「每版角色数」自动生成，无需在此手动添加。修改后所有游戏立即生效。</div>
         <div id="set-ev-list">${evRows}</div>
         <button type="button" class="ghost" id="set-ev-add" style="margin-top:8px">＋ 添加新事件</button>
       </div>
