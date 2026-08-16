@@ -1527,7 +1527,7 @@ function openGamePanel(gameId, focusTenths) {
   });
 
   /* ---- 基本信息：图标预览同步（复用原逻辑）---- */
-  setupIconSync(body, game);
+  setupIconSync(body, game, ic);
 
   /* ---- 保存按钮 ---- */
   document.getElementById('modal-save').onclick = () => saveGamePanel(game);
@@ -1659,7 +1659,7 @@ function buildGpRulesTab(game) {
 }
 
 /** 图标预览同步逻辑（从原 openGameModal 提取） */
-function setupIconSync(body, game) {
+function setupIconSync(body, game, ic) {
   const icType = body.querySelector('#g-ic-type');
   const icFile = body.querySelector('#g-ic-file');
   const icPrev = body.querySelector('#g-icon-prev');
