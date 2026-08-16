@@ -399,6 +399,15 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 .le-inline-editor .field input { width: 100%; }
 .le-inline-editor .modal-actions { margin-top: 10px; }
 
+/* 列设置面板 */
+.col-settings-panel { padding: 14px !important; max-height: 400px; overflow-y: auto; }
+.col-set-hint { font-size: 11px; color: var(--text-soft); margin-bottom: 8px; }
+.col-set-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.col-set-item { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; cursor: pointer; transition: background 0.15s; }
+.col-set-item:hover { background: var(--bg-soft); }
+.col-set-item input[type="checkbox"] { accent-color: var(--primary); width: 15px; height: 15px; flex-shrink: 0; }
+.col-set-name { font-size: 13px; }
+
 @media (max-width: 760px) {
   .app-header h1 { width: 100%; }
   .tl-layout { flex-direction: column; }

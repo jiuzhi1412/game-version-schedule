@@ -25,6 +25,40 @@ function activeEvents() {
   return (state.customEvents || EVENT_DEFS_TEMPLATE).filter(e => e.hidden !== true);
 }
 
+/**
+ * 获取某个游戏生效的事件定义列表（全局隐藏 + 该游戏单独隐藏的都过滤掉）
+ * game.hiddenEventKeys 存的是要隐藏的事件子 key，如 'banner_1' 表示卡池下半
+ */
+function gameActiveEvents(game) {
+  const hidden = (game && game.hiddenEventKeys) || [];
+  const hiddenSet = new Set(hidden);
+  return activeEvents().filter(def => {
+    // 如果该事件只有一个 offset 且其子 key 被隐藏，整行隐藏
+    if (def.offsets.length === 1) {
+      const k = def.key + '_0';
+      if (hiddenSet.has(k)) return false;
+    }
+    // 多 offset 事件：检查每个子 key，过滤掉被隐藏的
+    // （返回修改后的 def 副本，只保留可见的 offsets）
+    return true;
+  }).map(def => {
+    if (def.offsets.length <= 1) return def;
+    // 多子项事件：过滤掉隐藏的子项
+    const visibleIdx = [];
+    def.offsets.forEach((_, idx) => {
+      const subKey = def.key + '_' + idx;
+      if (!hiddenSet.has(subKey)) visibleIdx.push(idx);
+    });
+    if (visibleIdx.length === 0) return null; // 全部隐藏
+    if (visibleIdx.length === def.offsets.length) return def; // 没变化
+    // 返回只包含可见子项的副本
+    const copy = { ...def, offsets: visibleIdx.map(i => def.offsets[i]) };
+    if (def.sub) copy.sub = visibleIdx.map(i => def.sub[i]);
+    copy._origKey = def.key; // 保留原始 key 用于保存时匹配
+    return copy;
+  }).filter(Boolean);
+}
+
 /* 事件类型配色（更丰富的区分度） */
 const EVENT_COLORS = {
   version_update: '#16a34a',
@@ -350,7 +384,7 @@ function defaultState() {
     icon: { type: 'letter', value: name[0], color },
     baseCycleDays: DEFAULT_CYCLE,
     anchorTenths, anchorDate, minorMax: 9,
-    eventHistory: {}, baseOffsets: {}, eventTitles: {}, versionDurations: {}, verNotes: {}, verEventOffsets: {}, verUpdateDates: {}
+    eventHistory: {}, baseOffsets: {}, eventTitles: {}, versionDurations: {}, verNotes: {}, verEventOffsets: {}, verUpdateDates: {}, hiddenEventKeys: []
   });
   const games = [
     g('原神', 'Genshin Impact', '#22c55e', 50, '2024-08-28'),
@@ -386,6 +420,7 @@ function migrateGame(g) {
   if (!g.verNotes) g.verNotes = {};
   if (!g.verEventOffsets) g.verEventOffsets = {};
   if (!g.verUpdateDates) g.verUpdateDates = {};
+  if (!g.hiddenEventKeys) g.hiddenEventKeys = [];
 }
 
 async function init() {
@@ -871,8 +906,32 @@ function renderList() {
     const currentVer = pastN.length > 0 ? pastN[pastN.length - 1] : null;  // 最近的一个 = 当前运行中版本
     const olderVersions = pastN.slice(0, -1);  // 排除当前版本的更早历史
     const futureN = future.slice(0, state.listCount || 8);
-    const cols = 2 + activeEvents().reduce((a, d) => a + d.offsets.length, 0);
+
+    // 该游戏可见的事件列（全局 + 按游戏隐藏过滤后）
+    const gEvts = gameActiveEvents(game);
+    // 构建可见事件 key 集合，用于过滤每行的事件单元格
+    const visibleEvKeys = new Set();
+    gEvts.forEach(def => {
+      def.offsets.forEach((_, idx) => {
+        const origKey = def._origKey || def.key;
+        visibleEvKeys.add(origKey + '_' + idx);
+      });
+    });
+
+    const cols = 2 + gEvts.reduce((a, d) => a + d.offsets.length, 0);
     let rows = '';
+
+    // 辅助函数：只渲染可见事件列的单元格
+    const renderEvCells = (v, editMode) => {
+      let html = '';
+      v.events.forEach(ev => {
+        const ek = ev.defKey + '_' + (ev.sub ?? 0);
+        if (!visibleEvKeys.has(ek)) return; // 该游戏隐藏了此列
+        html += listEvCellHTML(game, v, ev, editMode);
+      });
+      return html;
+    };
+
     // 渲染顺序：更早历史(灰) → —今天— → 📍当前版本(高亮) → 未来(正常)
     // ---- 更早的历史版本 ----
     olderVersions.forEach(v => {
@@ -883,7 +942,7 @@ function renderList() {
         ? `<td class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="update" title="点击修改更新日期">${fmtDate(v.updateDate)}<span class="le-edit-hint">✏️</span></td>`
         : `<td>${fmtDate(v.updateDate)}</td>`;
       rows += `<tr class="vt-past">${verTd}${updateTd}`;
-      v.events.forEach(ev => { rows += listEvCellHTML(game, v, ev, editMode); });
+      rows += renderEvCells(v, editMode);
       rows += `</tr>`;
     });
     // ---- 分隔线（有历史或有当前版本且有未来时才显示） ----
@@ -899,7 +958,7 @@ function renderList() {
         ? `<td class="le-editable" data-game="${game.id}" data-tenths="${currentVer.tenths}" data-cell-type="update" title="点击修改更新日期">${fmtDate(currentVer.updateDate)}<span class="le-edit-hint">✏️</span></td>`
         : `<td>${fmtDate(currentVer.updateDate)}</td>`;
       rows += `<tr class="vt-current">${verTd}${updateTd}`;
-      currentVer.events.forEach(ev => { rows += listEvCellHTML(game, currentVer, ev, editMode); });
+      rows += renderEvCells(currentVer, editMode);
       rows += `</tr>`;
     }
     // ---- 未来版本 ----
@@ -911,18 +970,20 @@ function renderList() {
         ? `<td class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="update" title="点击修改更新日期">${fmtDate(v.updateDate)}<span class="le-edit-hint">✏️</span></td>`
         : `<td>${fmtDate(v.updateDate)}</td>`;
       rows += `<tr>${verTd}${updateTd}`;
-      v.events.forEach(ev => { rows += listEvCellHTML(game, v, ev, editMode); });
+      rows += renderEvCells(v, editMode);
       rows += `</tr>`;
     });
     let head = '<th>版本</th><th>更新</th>';
-    activeEvents().forEach(def => def.offsets.forEach((o, idx) => {
-      head += `<th><span class="chip-dot" style="background:${eventColor(def.key, idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(def.name + (def.sub ? def.sub[idx] : ''))}</th>`;
+    gEvts.forEach(def => def.offsets.forEach((o, idx) => {
+      const origKey = def._origKey || def.key;
+      head += `<th><span class="chip-dot" style="background:${eventColor(origKey, idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(def.name + (def.sub ? def.sub[idx] : ''))}</th>`;
     }));
-    // 编辑模式切换按钮
+    // 编辑模式切换 + 列设置按钮
     const editBtn = `<button class="vc-btn ${editMode ? 'le-btn-on' : ''}" onclick="toggleListEditMode()" style="margin-left:8px;${editMode ? 'background:var(--primary);color:#fff;border-color:var(--primary)' : ''}">${editMode ? '✏️ 修改中' : '✏️ 修改'}</button>`;
-    html += `<div class="list-game ${editMode ? 'le-mode' : ''}"><div class="list-game-title">${gameIconHTML(game, 'icon')} <b>${escapeHtml(game.name)}</b>` +
+    const colBtn = `<button class="vc-btn" onclick="openColSettings('${game.id}', this)" title="设置显示/隐藏的列">⚙️ 列</button>`;
+    html += `<div class="list-game ${editMode ? 'le-mode' : ''}" data-game-id="${game.id}"><div class="list-game-title">${gameIconHTML(game, 'icon')} <b>${escapeHtml(game.name)}</b>` +
       `<span class="muted">基础 ${game.baseCycleDays}天 · 小版本上限 ${game.minorMax} · 显示过去 ${state.listPast || 2} / 未来 ${state.listCount || 8} 个版本</span>` +
-      `${editBtn}` +
+      `${editBtn} ${colBtn}` +
       `<button class="ghost" style="margin-left:auto" onclick="openGameModal('${game.id}')">编辑游戏</button></div>` +
       `<div class="calendar-scroll"><table class="ver-table ${editMode ? 'le-table' : ''}"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
   });
@@ -1115,6 +1176,88 @@ window.saveListEvEdit = function(gameId, tenths, hk) {
   closeListCellEditor();
   saveAndRender();
   toast('已保存修改');
+};
+
+/* ----------------------------- 列设置面板（按游戏隐藏/显示事件列） ----------------------------- */
+let _colSettingsEl = null; // 当前打开的列设置面板
+
+/** 打开某个游戏的列设置浮层 */
+window.openColSettings = function(gameId, btnEl) {
+  // 关闭已打开的
+  if (_colSettingsEl) { _colSettingsEl.remove(); _colSettingsEl = null; }
+  const game = state.games.find(g => g.id === gameId);
+  if (!game) return;
+
+  const hidden = (game.hiddenEventKeys || []);
+  const hiddenSet = new Set(hidden);
+
+  const panel = document.createElement('div');
+  panel.className = 'le-inline-editor col-settings-panel';
+  panel.onclick = (e) => e.stopPropagation();
+
+  let itemsHtml = '';
+  activeEvents().forEach(def => {
+    def.offsets.forEach((off, idx) => {
+      const subKey = def.key + '_' + idx;
+      const subName = def.sub ? def.sub[idx] : '';
+      const label = def.name + (subName ? ' · ' + subName : '');
+      const isHidden = hiddenSet.has(subKey);
+      const dotColor = eventColor(def.key, idx);
+      itemsHtml += `
+        <label class="col-set-item">
+          <input type="checkbox" data-subkey="${subKey}" ${isHidden ? '' : 'checked'} />
+          <span class="chip-dot" style="background:${dotColor};display:inline-block;width:10px;height:10px;border-radius:50%;flex-shrink:0"></span>
+          <span class="col-set-name">${escapeHtml(label)}</span>
+        </label>`;
+    });
+  });
+
+  panel.innerHTML = `
+    <div class="le-editor-title">⚙️ 列设置 — ${escapeHtml(game.name)}</div>
+    <div class="col-set-hint">勾选要显示的列，取消勾选可隐藏</div>
+    <div class="col-set-list">${itemsHtml}</div>
+    <div class="modal-actions">
+      <button onclick="closeColSettings()">取消</button>
+      <button class="primary" onclick="saveColSettings('${gameId}')">确定</button>
+    </div>`;
+
+  // 定位到按钮旁边
+  const rect = btnEl.getBoundingClientRect();
+  panel.style.position = 'fixed';
+  panel.style.left = Math.min(rect.right, window.innerWidth - 280) + 'px';
+  panel.style.top = rect.bottom + 4 + 'px';
+  panel.style.zIndex = '200';
+  panel.style.width = '260px';
+
+  document.body.appendChild(panel);
+  _colSettingsEl = panel;
+
+  // 点击外部关闭
+  setTimeout(() => {
+    document.addEventListener('click', closeColSettings, { once: true });
+  }, 0);
+};
+
+function closeColSettings() {
+  if (_colSettingsEl) { _colSettingsEl.remove(); _colSettingsEl = null; }
+}
+
+/** 保存列设置 */
+window.saveColSettings = function(gameId) {
+  const game = state.games.find(g => g.id === gameId);
+  if (!game) return;
+  if (!game.hiddenEventKeys) game.hiddenEventKeys = [];
+  const hidden = [];
+
+  document.querySelectorAll('.col-settings-panel input[data-subkey]').forEach(cb => {
+    const subKey = cb.dataset.subkey;
+    if (!cb.checked) hidden.push(subKey);
+  });
+
+  game.hiddenEventKeys = hidden;
+  closeColSettings();
+  saveAndRender();
+  toast('已更新列设置');
 };
 
 /* ----------------------------- 月历渲染 ----------------------------- */
@@ -1498,7 +1641,7 @@ function openGameModal(gameId) {
         id: 'g_' + Math.random().toString(36).slice(2, 9),
         name, fullName: body.querySelector('#g-full').value.trim(), color,
         icon: { type, value: ival, color }, baseCycleDays: cycle, minorMax,
-        anchorTenths, anchorDate, eventHistory: {}, baseOffsets, eventTitles: {}, versionDurations: {}, verNotes: {}, verEventOffsets: {}, verUpdateDates: {},
+        anchorTenths, anchorDate, eventHistory: {}, baseOffsets, eventTitles: {}, versionDurations: {}, verNotes: {}, verEventOffsets: {}, verUpdateDates: {}, hiddenEventKeys: [],
         minorMaxBreakpoints
       };
       state.games.push(ng); visibleGames[ng.id] = true; state.visibleGames = visibleGames;
