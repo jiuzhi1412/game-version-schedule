@@ -806,21 +806,45 @@ function renderList() {
     const tMs = addDays(todayNoon(), -1).getTime();
     const past = all.filter(v => v.updateDate.getTime() < tMs);
     const future = all.filter(v => v.updateDate.getTime() >= tMs);
-    const pastN = past.slice(-(state.listPast || 2)).reverse(); // 过去版本：从旧到新排列
+    // 取过去版本：末尾 N 个（最新的），其中最后一个就是「当前版本」
+    const pastN = past.slice(-(state.listPast || 2));   // 旧→新，如 [6.6, 6.8] 或 [6.8] 或 [6.8, 7.0]
+    const currentVer = pastN.length > 0 ? pastN[pastN.length - 1] : null;  // 最近的一个 = 当前运行中版本
+    const olderVersions = pastN.slice(0, -1);  // 排除当前版本的更早历史
     const futureN = future.slice(0, state.listCount || 8);
     const cols = 2 + activeEvents().reduce((a, d) => a + d.offsets.length, 0);
     let rows = '';
-    let dividerDone = false;
-    const currentIdx = pastN.length > 0 ? pastN.length - 1 : -1; // 最后一个过去版本 = 当前版本
-    [...pastN, ...futureN].forEach((v, i) => {
-      if (!dividerDone && pastN.length && futureN.length && i === pastN.length) {
-        rows += `<tr class="vt-divider"><td colspan="${cols}">— 今天 —</td></tr>`;
-        dividerDone = true;
-      }
-      // 当前版本（最近的过去版本）高亮，其他过去版本灰，未来正常
-      const isCurrent = (i === currentIdx);
-      const rowCls = isCurrent ? ' class="vt-current"' : (i < pastN.length ? ' class="vt-past"' : '');
-      rows += `<tr${rowCls}><td class="vt-ver">${isCurrent ? '📍 ' : ''}${v.label}</td><td>${fmtDate(v.updateDate)}</td>`;
+    // 渲染顺序：更早历史(灰) → —今天— → 📍当前版本(高亮) → 未来(正常)
+    // ---- 更早的历史版本 ----
+    olderVersions.forEach(v => {
+      rows += `<tr class="vt-past"><td class="vt-ver">${v.label}</td><td>${fmtDate(v.updateDate)}</td>`;
+      v.events.forEach(ev => {
+        const cd = diffDays(ev.date, todayNoon());
+        const cdTxt = cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd));
+        rows += `<td title="${escapeHtml(ev.title)}">${fmtDate(ev.date)}<div class="muted" style="font-size:11px">${cdTxt}</div>` +
+          (ev.title !== ev.name ? `<div class="ev-custom">${escapeHtml(ev.title)}</div>` : '') + `</td>`;
+      });
+      rows += `</tr>`;
+    });
+    // ---- 分隔线（有历史或有当前版本且有未来时才显示） ----
+    if ((olderVersions.length > 0 || currentVer) && futureN.length > 0) {
+      rows += `<tr class="vt-divider"><td colspan="${cols}">— 今天 —</td></tr>`;
+    }
+    // ---- 当前版本（高亮） ----
+    if (currentVer) {
+      rows += `<tr class="vt-current"><td class="vt-ver">📍 ${currentVer.label}</td><td>${fmtDate(currentVer.updateDate)}</td>`;
+      currentVer.events.forEach(ev => {
+        const cd = diffDays(ev.date, todayNoon());
+        const cdTxt = cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd));
+        const isSoon = cd >= 0 && cd <= (state.leadDays || 3);
+        rows += `<td class="${isSoon ? 'soon' : ''}" title="${escapeHtml(ev.title)}">${fmtDate(ev.date)}` +
+          `<div class="muted" style="font-size:11px">${cdTxt}</div>` +
+          (ev.title !== ev.name ? `<div class="ev-custom">${escapeHtml(ev.title)}</div>` : '') + `</td>`;
+      });
+      rows += `</tr>`;
+    }
+    // ---- 未来版本 ----
+    futureN.forEach(v => {
+      rows += `<tr><td class="vt-ver">${v.label}</td><td>${fmtDate(v.updateDate)}</td>`;
       v.events.forEach(ev => {
         const cd = diffDays(ev.date, todayNoon());
         const cdTxt = cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd));
