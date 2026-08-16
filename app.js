@@ -463,6 +463,13 @@ function eventOffset(game, hk, defOff, tenths) {
   const bo = game && game.baseOffsets && game.baseOffsets[hk];
   return (typeof bo === 'number') ? bo : defOff;
 }
+/** 获取默认偏移量（不含逐版本覆盖，用于判断是否需要存储覆盖） */
+function getDefaultOffset(game, hk) {
+  const h = game && game.eventHistory && game.eventHistory[hk];
+  if (h && h.length) return Math.round(h.reduce((a, b) => a + b, 0) / h.length);
+  const bo = game && game.baseOffsets && game.baseOffsets[hk];
+  return (typeof bo === 'number') ? bo : null; // null = 使用 defOff（由调用方传入）
+}
 function recordOffset(game, hk, off) {
   if (!game.eventHistory) game.eventHistory = {};
   if (!game.eventHistory[hk]) game.eventHistory[hk] = [];
@@ -1080,12 +1087,26 @@ window.saveListEvEdit = function(gameId, tenths, hk) {
       const ev = v.events.find(e => e.historyKey === hk);
       if (ev) {
         const newDate = parseDate(dateStr);
-        const diff = diffDays(newDate, ev.date);
-        if (diff !== 0) {
+        // 存储绝对偏移量（相对版本更新日期）
+        // eventOffset() 返回值直接用于 addDays(updateDate, off)，所以必须存绝对偏移
+        const absOff = diffDays(newDate, v.updateDate);
+        // 查找事件定义的默认偏移量，用于判断是否改回了默认值
+        let defOff = null;
+        for (const def of activeEvents()) {
+          const idx = def.offsets.findIndex((o, i) => {
+            const k = def.key + (def.offsets.length > 1 ? '_' + i : '');
+            return k === hk;
+          });
+          if (idx >= 0) { defOff = def.offsets[idx]; break; }
+        }
+        // 获取用户自定义的全局基准偏移（如有）
+        const customBase = getDefaultOffset(game, hk);
+        const effectiveDefault = (customBase !== null) ? customBase : defOff;
+        if (absOff !== effectiveDefault) {
           if (!game.verEventOffsets) game.verEventOffsets = {};
-          game.verEventOffsets[tenths + '|' + hk] = diff;
+          game.verEventOffsets[tenths + '|' + hk] = absOff;
         } else {
-          // 偏移为0说明改回了默认值，删除覆盖
+          // 改回了默认值，删除覆盖让系统用回默认计算
           if (game.verEventOffsets) delete game.verEventOffsets[tenths + '|' + hk];
         }
       }
