@@ -96,11 +96,15 @@ const Storage = {
     try { const raw = localStorage.getItem(STORE_KEY); if (raw) return JSON.parse(raw); } catch (e) { console.warn('load fail', e); }
     return null;
   },
+  _pushTimer: null,
   save(state) {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { console.warn('save fail', e); }
     if (fileHandle) { try { persistToFile(); } catch (e) { console.warn('persist fail', e); } }
     if (this.syncAdapter && typeof this.syncAdapter.push === 'function') {
-      try { this.syncAdapter.push(state); } catch (e) { console.warn('sync push fail', e); }
+      clearTimeout(this._pushTimer);
+      this._pushTimer = setTimeout(() => {
+        try { this.syncAdapter.push(state); } catch (e) { console.warn('sync push fail', e); }
+      }, 1500);
     }
   },
   enableCloud(adapter) { this.syncAdapter = adapter; this.backend = 'cloud'; },
@@ -151,7 +155,7 @@ function onCloudLogin(user) {
   supabaseAdapter().pull().then(remote => {
     if (remote && Array.isArray(remote.games)) { applyRemoteState(remote); toast('已从云端同步数据'); }
     else { Storage.save(state); toast('已把本地数据上传到云端'); }
-  }).catch(e => { console.warn('cloud pull fail', e); toast('云端同步失败'); });
+  }).catch(e => { console.warn('cloud pull fail', e); });
 }
 
 function onCloudLogout() {
@@ -166,14 +170,14 @@ function supabaseAdapter() {
       if (!supabase || !cloudUser) return null;
       const { data, error } = await supabase.from('user_schedule').select('data')
         .eq('user_id', cloudUser.id).maybeSingle();
-      if (error) { console.warn('pull err', error); return null; }
+      if (error) { console.warn('cloud pull err', error); return null; }
       return data && data.data ? data.data : null;
     },
     async push(st) {
       if (!supabase || !cloudUser) return;
       const { error } = await supabase.from('user_schedule')
         .upsert({ user_id: cloudUser.id, data: st, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
-      if (error) { console.warn('push err', error); toast('云端同步失败'); }
+      if (error) { console.warn('cloud push err', error); }
     }
   };
 }
