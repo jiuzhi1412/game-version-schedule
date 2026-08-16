@@ -384,7 +384,7 @@ function defaultState() {
     icon: { type: 'letter', value: name[0], color },
     baseCycleDays: DEFAULT_CYCLE,
     anchorTenths, anchorDate, minorMax: 9,
-    eventHistory: {}, baseOffsets: {}, eventTitles: {}, versionDurations: {}, verNotes: {}, verEventOffsets: {}, verUpdateDates: {}, hiddenEventKeys: []
+    eventHistory: {}, baseOffsets: {}, eventTitles: {}, versionDurations: {}, verNotes: {}, verEventOffsets: {}, verUpdateDates: {}, hiddenEventKeys: [], verHiddenEvents: {}
   });
   const games = [
     g('原神', 'Genshin Impact', '#22c55e', 50, '2024-08-28'),
@@ -421,6 +421,7 @@ function migrateGame(g) {
   if (!g.verEventOffsets) g.verEventOffsets = {};
   if (!g.verUpdateDates) g.verUpdateDates = {};
   if (!g.hiddenEventKeys) g.hiddenEventKeys = [];
+  if (!g.verHiddenEvents) g.verHiddenEvents = {};
 }
 
 async function init() {
@@ -537,9 +538,11 @@ function genGameVersions(game) {
         const name = def.name + (def.sub ? def.sub[idx] : '');
         const custom = game.eventTitles && game.eventTitles[evTitleKey(t, hk)];
         const title = custom || name;
+        // 该版本是否隐藏此事件（per-version 隐藏）
+        const hidden = !!(game.verHiddenEvents && game.verHiddenEvents[t + '|' + hk]);
         events.push({
           defKey: def.key, historyKey: hk, sub: def.offsets.length > 1 ? idx : null,
-          name, title, date: addDays(updateDate, off), offset: off
+          name, title, date: addDays(updateDate, off), offset: off, hidden
         });
       });
     });
@@ -876,6 +879,17 @@ function listEvCellHTML(game, v, ev, editMode) {
   const isSoon = cd >= 0 && cd <= (state.leadDays || 3);
   const soonCls = isSoon ? 'soon' : '';
   const customHtml = ev.title !== ev.name ? `<div class="ev-custom">${escapeHtml(ev.title)}</div>` : '';
+
+  // 该版本无此事件：显示空占位（编辑模式下可点击恢复）
+  if (ev.hidden) {
+    if (!editMode) {
+      return `<td class="vt-empty" title="此版本无「${escapeHtml(ev.name)}」">—</td>`;
+    }
+    return `<td class="le-editable vt-empty" data-game="${game.id}" data-tenths="${v.tenths}"` +
+      ` data-hk="${ev.historyKey}" data-ev-name="${escapeAttr(ev.name)}" title="点击恢复显示：${escapeHtml(ev.name)}">` +
+      `<span class="le-add-hint">＋ 恢复</span></td>`;
+  }
+
   if (!editMode) {
     return `<td class="${soonCls}" title="${escapeHtml(ev.title)}">${fmtDate(ev.date)}` +
       `<div class="muted" style="font-size:11px">${cdTxt}</div>${customHtml}</td>`;
@@ -1066,16 +1080,21 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
     if (!ev) return;
     const tkey = evTitleKey(tenths, hk);
     const currentTitle = (game.eventTitles && game.eventTitles[tkey]) || '';
+    const isHidden = !!ev.hidden;
     editor.innerHTML = `
       <div class="le-editor-title"><span class="chip-dot" style="background:${eventColor(ev.defKey, ev.sub ?? 0)};display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle"></span> ${escapeHtml(ev.name)} — 版本 ${escapeHtml(v.label)}</div>
       <div class="field">
         <label>事件日期</label>
-        <input type="date" id="le-date" value="${fmtDate(ev.date)}">
+        <input type="date" id="le-date" value="${fmtDate(ev.date)}" ${isHidden ? 'disabled' : ''}>
       </div>
       <div class="field">
         <label>自定义标题 / 备注</label>
-        <input type="text" id="le-title" placeholder="留空则显示默认名称「${escapeHtml(ev.name)}」" value="${escapeHtml(currentTitle)}">
+        <input type="text" id="le-title" placeholder="留空则显示默认名称「${escapeHtml(ev.name)}」" value="${escapeHtml(currentTitle)}" ${isHidden ? 'disabled' : ''}>
       </div>
+      <label class="le-hide-check">
+        <input type="checkbox" id="le-hide" ${isHidden ? 'checked' : ''} />
+        <span>此版本无该事件（隐藏此单元格）</span>
+      </label>
       <div class="modal-actions">
         <button onclick="closeListCellEditor()">取消</button>
         <button class="primary" onclick="saveListEvEdit('${gameId}', ${tenths}, '${hk}')">保存</button>
@@ -1134,6 +1153,26 @@ window.saveListUpdateDate = function(gameId, tenths) {
 window.saveListEvEdit = function(gameId, tenths, hk) {
   const game = state.games.find(g => g.id === gameId);
   if (!game) return;
+  const hideCb = document.getElementById('le-hide');
+  const hideThis = hideCb ? hideCb.checked : false;
+  const hideKey = tenths + '|' + hk;
+
+  // 处理「此版本无该事件」隐藏标志
+  if (!game.verHiddenEvents) game.verHiddenEvents = {};
+  if (hideThis) {
+    game.verHiddenEvents[hideKey] = true;
+  } else {
+    delete game.verHiddenEvents[hideKey];
+  }
+
+  // 如果隐藏了，不需要保存日期/标题
+  if (hideThis) {
+    closeListCellEditor();
+    saveAndRender();
+    toast('已隐藏该事件');
+    return;
+  }
+
   const dateStr = document.getElementById('le-date').value;
   const titleVal = document.getElementById('le-title').value.trim();
   // 保存自定义标题
@@ -1641,7 +1680,7 @@ function openGameModal(gameId) {
         id: 'g_' + Math.random().toString(36).slice(2, 9),
         name, fullName: body.querySelector('#g-full').value.trim(), color,
         icon: { type, value: ival, color }, baseCycleDays: cycle, minorMax,
-        anchorTenths, anchorDate, eventHistory: {}, baseOffsets, eventTitles: {}, versionDurations: {}, verNotes: {}, verEventOffsets: {}, verUpdateDates: {}, hiddenEventKeys: [],
+        anchorTenths, anchorDate, eventHistory: {}, baseOffsets, eventTitles: {}, versionDurations: {}, verNotes: {}, verEventOffsets: {}, verUpdateDates: {}, hiddenEventKeys: [], verHiddenEvents: {},
         minorMaxBreakpoints
       };
       state.games.push(ng); visibleGames[ng.id] = true; state.visibleGames = visibleGames;
