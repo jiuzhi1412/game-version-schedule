@@ -60,31 +60,37 @@ function gameActiveEvents(game) {
   const staticEvts = base.filter(e => !e._isChar);
   const charCount = (game && game.charCount) || 2;
   const charEvts = generateCharEvents(charCount);
-  return staticEvts.concat(charEvts).filter(def => {
-    // 如果该事件只有一个 offset 且其子 key 被隐藏，整行隐藏
+  return staticEvts.concat(charEvts).map(def => {
+    // 单偏移事件：标记是否被隐藏（不丢弃，让表格渲染决定如何展示）
     if (def.offsets.length === 1) {
       const k = def.key + '_' + (def.charIndex ?? 0);
-      if (hiddenSet.has(k)) return false;
+      if (hiddenSet.has(k)) return { ...def, _hidden: true };
     }
-    // 多 offset 事件：检查每个子 key，过滤掉被隐藏的
-    // （返回修改后的 def 副本，只保留可见的 offsets）
-    return true;
-  }).map(def => {
-    if (def.offsets.length <= 1) return def;
-    // 多子项事件：过滤掉隐藏的子项
-    const visibleIdx = [];
-    def.offsets.forEach((_, idx) => {
-      const subKey = def.key + '_' + idx;
-      if (!hiddenSet.has(subKey)) visibleIdx.push(idx);
-    });
-    if (visibleIdx.length === 0) return null; // 全部隐藏
-    if (visibleIdx.length === def.offsets.length) return def; // 没变化
-    // 返回只包含可见子项的副本
-    const copy = { ...def, offsets: visibleIdx.map(i => def.offsets[i]) };
-    if (def.sub) copy.sub = visibleIdx.map(i => def.sub[i]);
-    copy._origKey = def.key; // 保留原始 key 用于保存时匹配
-    return copy;
+    // 多 offset 事件：过滤掉隐藏的子项
+    if (def.offsets.length > 1) {
+      const visibleIdx = [];
+      def.offsets.forEach((_, idx) => {
+        const subKey = def.key + '_' + idx;
+        if (!hiddenSet.has(subKey)) visibleIdx.push(idx);
+      });
+      if (visibleIdx.length === 0) return null; // 全部隐藏
+      if (visibleIdx.length < def.offsets.length) {
+        const copy = { ...def, offsets: visibleIdx.map(i => def.offsets[i]) };
+        if (def.sub) copy.sub = visibleIdx.map(i => def.sub[i]);
+        copy._origKey = def.key;
+        return copy;
+      }
+    }
+    return def;
   }).filter(Boolean);
+}
+
+/** 列设置面板专用：返回所有事件定义（含被隐藏的），确保用户能恢复 */
+function allGameEventsForSettings(game) {
+  const base = activeEvents().filter(e => e.hidden !== true);
+  const staticEvts = base.filter(e => !e._isChar);
+  const charCount = (game && game.charCount) || 2;
+  return staticEvts.concat(generateCharEvents(charCount));
 }
 
 /* 事件类型配色（更丰富的区分度） */
@@ -582,8 +588,8 @@ function genGameVersions(game) {
         const name = def.name + (def.sub ? def.sub[idx] : '');
         const custom = game.eventTitles && game.eventTitles[evTitleKey(t, hk)];
         const title = custom || name;
-        // 该版本是否隐藏此事件（per-version 隐藏）
-        const hidden = !!(game.verHiddenEvents && game.verHiddenEvents[t + '|' + hk]);
+        // 该版本是否隐藏此事件（per-version 隐藏 或 列级隐藏）
+        const hidden = !!(game.verHiddenEvents && game.verHiddenEvents[t + '|' + hk]) || !!def._hidden;
         events.push({
           defKey: def.key, historyKey: hk, sub: def.offsets.length > 1 ? idx : null,
           charIndex: def.charIndex != null ? def.charIndex : null,
@@ -1055,17 +1061,21 @@ function renderList() {
       });
     });
     // 第一行：分组标题（普通列 rowspan=2，角色组 colspan）
+    // 辅助：判断事件定义是否被隐藏
+    const isDefHidden = (d) => !!(d._hidden);
     let headRow1 = '<th rowspan="2">版本</th><th rowspan="2">更新</th>';
     normalCols.forEach(({ def, idx }) => {
       const origKey = def._origKey || def.key;
-      headRow1 += `<th rowspan="2"><span class="chip-dot" style="background:${eventColor(origKey, idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(def.name + (def.sub ? def.sub[idx] : ''))}</th>`;
+      const hid = isDefHidden(def);
+      headRow1 += `<th rowspan="2" style="${hid ? 'opacity:.35;text-decoration:line-through' : ''}"><span class="chip-dot" style="background:${eventColor(origKey, idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(def.name + (def.sub ? def.sub[idx] : ''))}</th>`;
     });
     charGroupDefs.forEach(group => {
       const colSpan = group.cols.length;
       const firstDef = group.cols[0].def;
       const firstOrigKey = firstDef._origKey || firstDef.key;
       const groupColor = eventColor(firstOrigKey, group.ci);
-      headRow1 += `<th colspan="${colSpan}" class="char-group-head" style="background:${groupColor}22;color:${groupColor};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${groupColor}44">
+      const allHidden = group.cols.every(c => isDefHidden(c.def));
+      headRow1 += `<th colspan="${colSpan}" class="char-group-head" style="background:${groupColor}22;color:${groupColor};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${groupColor}44${allHidden ? ';opacity:.35;text-decoration:line-through' : ''}">
         <span class="chip-dot" style="background:${groupColor};width:6px;height:6px"></span> ${escapeHtml(group.label)}
       </th>`;
     });
@@ -1075,16 +1085,24 @@ function renderList() {
       group.cols.forEach(({ def, idx }) => {
         const origKey = def._origKey || def.key;
         const color = eventColor(origKey, group.ci ?? idx);
-        headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08">${escapeHtml(def.sub ? def.sub[idx] : def.name)}</th>`;
+        const hid = isDefHidden(def);
+        headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08${hid ? ';opacity:.35;text-decoration:line-through' : ''}">${escapeHtml(def.sub ? def.sub[idx] : def.name)}</th>`;
       });
     });
     const head = `<tr>${headRow1}</tr>${headRow2 ? '<tr>' + headRow2 + '</tr>' : ''}`;
-    // 编辑模式切换 + 列设置按钮（始终可见，方便恢复误隐藏的列）
+    // 编辑模式切换 + 列设置按钮（仅编辑模式显示）
     const editBtn = `<button class="vc-btn ${editMode ? 'le-btn-on' : ''}" onclick="toggleListEditMode()" style="margin-left:8px;${editMode ? 'background:var(--primary);color:#fff;border-color:var(--primary)' : ''}">${editMode ? '✏️ 修改中' : '✏️ 修改'}</button>`;
-    const colBtn = `<button class="vc-btn" onclick="openColSettings('${game.id}', this)" title="设置显示/隐藏的列">⚙️ 列</button>`;
+    const colBtn = editMode
+      ? `<button class="vc-btn" onclick="openColSettings('${game.id}', this)" title="设置显示/隐藏的列">⚙️ 列</button>`
+      : '';
+    // 有隐藏列时显示恢复提示
+    const hiddenCount = (game.hiddenEventKeys || []).length;
+    const hiddenHint = !editMode && hiddenCount > 0
+      ? ` <span class="muted" style="cursor:pointer;font-size:11px;color:var(--danger);font-weight:600" onclick="toggleListEditMode();setTimeout(function(){openColSettings('${game.id}',document.querySelector('[data-game-id=&quot;${game.id}&quot;] .vc-btn[title*=列]'))},100)" title="点击进入修改模式恢复隐藏的${hiddenCount}列">🔒${hiddenCount}列已隐藏</span>`
+      : '';
     html += `<div class="list-game ${editMode ? 'le-mode' : ''}" data-game-id="${game.id}"><div class="list-game-title">${gameIconHTML(game, 'icon')} <b>${escapeHtml(game.name)}</b>` +
       `<span class="muted">基础 ${game.baseCycleDays}天 · 小版本上限 ${game.minorMax} · 显示过去 ${state.listPast || 2} / 未来 ${state.listCount || 8} 个版本</span>` +
-      `${editBtn}${colBtn}` +
+      `${editBtn}${colBtn}${hiddenHint}` +
       `<button class="ghost" style="margin-left:auto" onclick="openGameModal('${game.id}')">编辑游戏</button></div>` +
       `<div class="calendar-scroll"><table class="ver-table ${editMode ? 'le-table' : ''}"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
   });
@@ -1321,7 +1339,7 @@ window.openColSettings = function(gameId, btnEl) {
   panel.onclick = (e) => e.stopPropagation();
 
   let itemsHtml = '';
-  gameActiveEvents(game).forEach(def => {
+  allGameEventsForSettings(game).forEach(def => {
     def.offsets.forEach((off, idx) => {
       const subKey = def.key + '_' + (def.charIndex != null ? def.charIndex : idx);
       const subName = def.sub ? def.sub[idx] : '';
