@@ -140,7 +140,10 @@ create table if not exists public.user_schedule (
 );
 alter table public.user_schedule enable row level security;
 create policy "own row" on public.user_schedule for all
-  using (auth.uid() = user_id) with check (auth.uid() = user_id);`;
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);
+-- ⚠️ 关键：必须给 authenticated 角色授权，否则登录后写入会报 42501 permission denied
+grant all on table public.user_schedule to authenticated;
+grant all on table public.user_schedule to service_role;`;
 }
 
 function initSupabase() {
@@ -161,7 +164,7 @@ function onCloudLogin(user) {
   supabaseAdapter().pull().then(remote => {
     if (remote && Array.isArray(remote.games)) { applyRemoteState(remote); toast('已从云端同步数据'); }
     else { Storage.save(state); toast('已把本地数据上传到云端'); }
-  }).catch(e => { console.warn('cloud pull fail', e); });
+  }).catch(e => { console.warn('cloud pull fail', e); toast('云端拉取失败：' + (e && e.message ? e.message : '未知错误')); });
 }
 
 function onCloudLogout() {
@@ -183,8 +186,10 @@ function supabaseAdapter() {
       if (!supabase || !cloudUser) return;
       const { error } = await supabase.from('user_schedule')
         .upsert({ user_id: cloudUser.id, data: st, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
-      if (error) { console.warn('cloud push err', error); toast('云端同步失败'); }
-      else { toast('已同步到云端'); }
+      if (error) {
+        console.warn('cloud push err', error);
+        toast('云端同步失败：' + (error.message || error.code || '未知错误'));
+      } else { toast('已同步到云端'); }
     }
   };
 }
