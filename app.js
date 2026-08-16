@@ -345,7 +345,7 @@ function defaultState() {
     icon: { type: 'letter', value: name[0], color },
     baseCycleDays: DEFAULT_CYCLE,
     anchorTenths, anchorDate, minorMax: 9,
-    eventHistory: {}, baseOffsets: {}, eventTitles: {}, versionDurations: {}, verNotes: {}
+    eventHistory: {}, baseOffsets: {}, eventTitles: {}, versionDurations: {}, verNotes: {}, verEventOffsets: {}, verUpdateDates: {}
   });
   const games = [
     g('原神', 'Genshin Impact', '#22c55e', 50, '2024-08-28'),
@@ -379,6 +379,8 @@ function migrateGame(g) {
   if (!g.eventHistory) g.eventHistory = {};
   if (!g.versionDurations) g.versionDurations = {};
   if (!g.verNotes) g.verNotes = {};
+  if (!g.verEventOffsets) g.verEventOffsets = {};
+  if (!g.verUpdateDates) g.verUpdateDates = {};
 }
 
 async function init() {
@@ -442,10 +444,17 @@ function durationOf(game, seq) {
 }
 function evTitleKey(seq, hk) { return seq + '|' + hk; }
 
-/* 推荐偏移：有历史取平均；否则用自定义基准 baseOffsets；再否则用默认 */
-function eventOffset(game, hk, defOff) {
+/* 推荐偏移：优先取逐版本覆盖 → 有历史取平均 → 自定义基准 baseOffsets → 默认 */
+function eventOffset(game, hk, defOff, tenths) {
+  // 1. 逐版本逐事件覆盖（列表编辑模式写入）
+  if (tenths !== undefined && tenths !== null) {
+    const veo = game && game.verEventOffsets && game.verEventOffsets[tenths + '|' + hk];
+    if (typeof veo === 'number') return veo;
+  }
+  // 2. 历史学习平均
   const h = game && game.eventHistory && game.eventHistory[hk];
   if (h && h.length) return Math.round(h.reduce((a, b) => a + b, 0) / h.length);
+  // 3. 全局自定义基准
   const bo = game && game.baseOffsets && game.baseOffsets[hk];
   return (typeof bo === 'number') ? bo : defOff;
 }
@@ -469,13 +478,15 @@ function genGameVersions(game) {
   const anchorT = game.anchorTenths;
 
   function makeVersion(t, dMs) {
-    const updateDate = new Date(dMs);
+    // 逐版本更新日期覆盖（列表编辑模式写入）
+    const vud = game && game.verUpdateDates && game.verUpdateDates[String(t)];
+    const updateDate = vud ? parseDate(vud) : new Date(dMs);
     const dur = durationOf(game, t);
     const events = [];
     activeEvents().forEach(def => {
       def.offsets.forEach((defOff, idx) => {
         const hk = def.key + (def.offsets.length > 1 ? '_' + idx : '');
-        const off = eventOffset(game, hk, defOff);
+        const off = eventOffset(game, hk, defOff, t);
         const name = def.name + (def.sub ? def.sub[idx] : '');
         const custom = game.eventTitles && game.eventTitles[evTitleKey(t, hk)];
         const title = custom || name;
@@ -1032,22 +1043,15 @@ window.saveListVerEdit = function(gameId, tenths) {
   toast('已保存版本备注');
 };
 
-/** 保存更新日期修改（通过调整 baseOffset 实现） */
+/** 保存更新日期修改（逐版本绝对日期覆盖） */
 window.saveListUpdateDate = function(gameId, tenths) {
   const game = state.games.find(g => g.id === gameId);
   if (!game) return;
   const newDateStr = document.getElementById('le-date').value;
   if (!newDateStr) { toast('请选择日期'); return; }
-  const newDate = parseDate(newDateStr);
-  const v = genGameVersions(game).find(v => v.tenths === tenths);
-  if (!v) return;
-  // 计算偏移天数差
-  const diff = diffDays(newDate, v.updateDate);
-  if (diff === 0) { closeListCellEditor(); return; }
-  // 通过 baseOffset 调整
-  if (!game.baseOffsets) game.baseOffsets = {};
-  const oldOffset = game.baseOffsets[String(tenths)] || 0;
-  game.baseOffsets[String(tenths)] = oldOffset + diff;
+  // 直接存绝对日期覆盖
+  if (!game.verUpdateDates) game.verUpdateDates = {};
+  game.verUpdateDates[String(tenths)] = newDateStr;
   closeListCellEditor();
   saveAndRender();
   toast(`已将版本${verLabel(game, tenths)}更新日期改为${newDateStr}`);
@@ -1064,7 +1068,7 @@ window.saveListEvEdit = function(gameId, tenths, hk) {
   const tkey = evTitleKey(tenths, hk);
   if (titleVal) game.eventTitles[tkey] = titleVal;
   else delete game.eventTitles[tkey];
-  // 保存日期偏移（如果改了日期）
+  // 保存日期偏移（逐版本覆盖，存入 verEventOffsets）
   if (dateStr) {
     const v = genGameVersions(game).find(v => v.tenths === tenths);
     if (v) {
@@ -1073,9 +1077,11 @@ window.saveListEvEdit = function(gameId, tenths, hk) {
         const newDate = parseDate(dateStr);
         const diff = diffDays(newDate, ev.date);
         if (diff !== 0) {
-          const offKey = tenths + '|' + hk;
-          if (!game.baseOffsets) game.baseOffsets = {};
-          game.baseOffsets[offKey] = diff;
+          if (!game.verEventOffsets) game.verEventOffsets = {};
+          game.verEventOffsets[tenths + '|' + hk] = diff;
+        } else {
+          // 偏移为0说明改回了默认值，删除覆盖
+          if (game.verEventOffsets) delete game.verEventOffsets[tenths + '|' + hk];
         }
       }
     }
@@ -1172,7 +1178,7 @@ function openVersionModal(gameId, tenths, focusHk) {
   html += `</div>`;
   body.innerHTML = html;
 
-  document.getElementById('m-dur-reset').onclick = () => { delete game.versionDurations[String(tenths)]; saveAndRender(); openVersionModal(gameId, tenths, focusHk); };
+  document.getElementById('m-dur-reset').onclick = () => { delete game.versionDurations[String(tenths)]; if (game.verUpdateDates) delete game.verUpdateDates[String(tenths)]; saveAndRender(); openVersionModal(gameId, tenths, focusHk); };
   body.querySelector('#m-dur').onchange = (e) => {
     let nd = Math.max(14, Math.min(120, Number(e.target.value) || game.baseCycleDays));
     game.versionDurations[String(tenths)] = nd; saveAndRender(); openVersionModal(gameId, tenths, focusHk);
@@ -1466,7 +1472,7 @@ function openGameModal(gameId) {
         id: 'g_' + Math.random().toString(36).slice(2, 9),
         name, fullName: body.querySelector('#g-full').value.trim(), color,
         icon: { type, value: ival, color }, baseCycleDays: cycle, minorMax,
-        anchorTenths, anchorDate, eventHistory: {}, baseOffsets, eventTitles: {}, versionDurations: {}, verNotes: {},
+        anchorTenths, anchorDate, eventHistory: {}, baseOffsets, eventTitles: {}, versionDurations: {}, verNotes: {}, verEventOffsets: {}, verUpdateDates: {},
         minorMaxBreakpoints
       };
       state.games.push(ng); visibleGames[ng.id] = true; state.visibleGames = visibleGames;
