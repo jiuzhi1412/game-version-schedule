@@ -97,9 +97,15 @@ const Storage = {
     return null;
   },
   _pushTimer: null,
-  save(state) {
+  _writeLocal(state) {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { console.warn('save fail', e); }
     if (fileHandle) { try { persistToFile(); } catch (e) { console.warn('persist fail', e); } }
+  },
+  // 仅存本地 + 本机文件，不碰云端（浏览/显隐/缩放等基础操作）
+  saveLocal(state) { this._writeLocal(state); },
+  // 存本地并同步到云端（改了自定义数据时才调）
+  save(state) {
+    this._writeLocal(state);
     if (this.syncAdapter && typeof this.syncAdapter.push === 'function') {
       clearTimeout(this._pushTimer);
       this._pushTimer = setTimeout(() => {
@@ -177,7 +183,8 @@ function supabaseAdapter() {
       if (!supabase || !cloudUser) return;
       const { error } = await supabase.from('user_schedule')
         .upsert({ user_id: cloudUser.id, data: st, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
-      if (error) { console.warn('cloud push err', error); }
+      if (error) { console.warn('cloud push err', error); toast('云端同步失败'); }
+      else { toast('已同步到云端'); }
     }
   };
 }
@@ -554,7 +561,7 @@ function renderFilterBar() {
     chip.innerHTML = `<span class="dot" style="background:${game.color}"></span>${escapeHtml(game.name)}`;
     chip.onclick = () => {
       visibleGames[game.id] = !(visibleGames[game.id] !== false);
-      state.visibleGames = visibleGames; render();
+      state.visibleGames = visibleGames; saveLocalOnly();
     };
     const editBtn = document.createElement('button');
     editBtn.className = 'chip-edit';
@@ -619,7 +626,7 @@ function shiftCal(d) {
   const parts = (state.calFocus || fmtCalFocus(todayNoon())).split('-');
   let y = Number(parts[0]), m = Number(parts[1]) + d;
   if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
-  state.calFocus = y + '-' + m; saveAndRender();
+  state.calFocus = y + '-' + m; saveLocalOnly();
 }
 function upcomingEvents(limit) {
   const all = collectEvents().filter(it => visibleGames[it.game.id] !== false && it.date >= addDays(todayNoon(), -1));
@@ -656,10 +663,10 @@ function renderViewControls() {
       `<button id="vc-today" class="vc-btn">跳到今天</button>` +
       `<span class="muted">拖版本块右缘可改时长 · 点事件可编辑</span>`;
     bar.classList.remove('hidden');
-    document.getElementById('vc-zoom-out').onclick = () => { state.dayW = Math.max(2, (state.dayW || 4) - 1); saveAndRender(); };
-    document.getElementById('vc-zoom-in').onclick = () => { state.dayW = Math.min(24, (state.dayW || 4) + 1); saveAndRender(); };
-    document.getElementById('vc-zoom').oninput = (e) => { state.dayW = Number(e.target.value) || 4; render(); };
-    document.getElementById('vc-labels').onchange = (e) => { state.showLabels = e.target.checked; saveAndRender(); };
+    document.getElementById('vc-zoom-out').onclick = () => { state.dayW = Math.max(2, (state.dayW || 4) - 1); saveLocalOnly(); };
+    document.getElementById('vc-zoom-in').onclick = () => { state.dayW = Math.min(24, (state.dayW || 4) + 1); saveLocalOnly(); };
+    document.getElementById('vc-zoom').oninput = (e) => { state.dayW = Number(e.target.value) || 4; saveLocalOnly(); };
+    document.getElementById('vc-labels').onchange = (e) => { state.showLabels = e.target.checked; saveLocalOnly(); };
     document.getElementById('vc-today').onclick = () => {
       const sc = document.querySelector('#view-timeline .timeline-scroll');
       if (sc) { const vS = parseDate(state.viewStart); const x = 156 + diffDays(todayNoon(), vS) * (state.dayW || 4); sc.scrollLeft = Math.max(0, x - 320); }
@@ -674,7 +681,7 @@ function renderViewControls() {
     bar.classList.remove('hidden');
     document.getElementById('vc-cal-prev').onclick = () => shiftCal(-1);
     document.getElementById('vc-cal-next').onclick = () => shiftCal(1);
-    document.getElementById('vc-cal-today').onclick = () => { state.calFocus = fmtCalFocus(todayNoon()); saveAndRender(); };
+    document.getElementById('vc-cal-today').onclick = () => { state.calFocus = fmtCalFocus(todayNoon()); saveLocalOnly(); };
     setTimeout(() => { const el = document.getElementById('month-' + f); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30);
   } else {
     bar.innerHTML = `<span class="vc-label">显示过去</span>` +
@@ -1354,6 +1361,7 @@ function importJSON(file) {
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function escapeAttr(s) { return escapeHtml(s); }
 function saveAndRender() { Storage.save(state); render(); }
+function saveLocalOnly() { Storage.saveLocal(state); render(); }
 
 let toastTimer = null;
 function toast(msg) {
@@ -1480,9 +1488,9 @@ function openSettings() {
   /* ---- 基础设置：实时响应 ---- */
   const zoomInp = body.querySelector('#s-zoom');
   const zoomV = body.querySelector('#s-zoom-v');
-  if (zoomInp) { zoomInp.oninput = () => { state.dayW = Number(zoomInp.value) || 4; zoomV.textContent = state.dayW + 'px'; render(); }; }
+  if (zoomInp) { zoomInp.oninput = () => { state.dayW = Number(zoomInp.value) || 4; zoomV.textContent = state.dayW + 'px'; saveLocalOnly(); }; }
   const labelsCb = body.querySelector('#s-labels');
-  if (labelsCb) { labelsCb.onchange = () => { state.showLabels = labelsCb.checked; saveAndRender(); }; }
+  if (labelsCb) { labelsCb.onchange = () => { state.showLabels = labelsCb.checked; saveLocalOnly(); }; }
 
   /* ---- 本地文件备份 ---- */
   updateBackupStatus();
