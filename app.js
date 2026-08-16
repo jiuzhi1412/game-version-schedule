@@ -197,6 +197,7 @@ function applyRemoteState(remote) {
   if (typeof state.listCount !== 'number') state.listCount = 8;
   if (typeof state.listPast !== 'number') state.listPast = 2;
   if (typeof state.showLabels !== 'boolean') state.showLabels = true;
+  if (typeof state.listEditMode !== 'boolean') state.listEditMode = false;
   state.games.forEach(migrateGame);
   visibleGames = state.visibleGames || {};
   Storage.save(state); render();
@@ -329,6 +330,7 @@ async function restoreFromFile() {
     if (typeof state.listCount !== 'number') state.listCount = 8;
   if (typeof state.listPast !== 'number') state.listPast = 2;
     if (typeof state.showLabels !== 'boolean') state.showLabels = true;
+    if (typeof state.listEditMode !== 'boolean') state.listEditMode = false;
     state.games.forEach(migrateGame);
     visibleGames = state.visibleGames || {};
     Storage.save(state); render(); updateBackupStatus();
@@ -343,7 +345,7 @@ function defaultState() {
     icon: { type: 'letter', value: name[0], color },
     baseCycleDays: DEFAULT_CYCLE,
     anchorTenths, anchorDate, minorMax: 9,
-    eventHistory: {}, baseOffsets: {}, eventTitles: {}, versionDurations: {}
+    eventHistory: {}, baseOffsets: {}, eventTitles: {}, versionDurations: {}, verNotes: {}
   });
   const games = [
     g('原神', 'Genshin Impact', '#22c55e', 50, '2024-08-28'),
@@ -365,7 +367,7 @@ function defaultState() {
     customEvents: JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE)),
     viewStart: fmtDate(addDays(todayNoon(), -60)),
     viewEnd: fmtDate(addDays(todayNoon(), 400)),
-    visibleGames: vis, dayW: 4, listCount: 8, listPast: 2, showLabels: true
+    visibleGames: vis, dayW: 4, listCount: 8, listPast: 2, showLabels: true, listEditMode: false
   };
 }
 
@@ -376,6 +378,7 @@ function migrateGame(g) {
   if (!g.eventTitles) g.eventTitles = {};
   if (!g.eventHistory) g.eventHistory = {};
   if (!g.versionDurations) g.versionDurations = {};
+  if (!g.verNotes) g.verNotes = {};
 }
 
 async function init() {
@@ -403,6 +406,7 @@ async function init() {
   if (typeof state.listCount !== 'number') state.listCount = 8;
   if (typeof state.listPast !== 'number') state.listPast = 2;
   if (typeof state.showLabels !== 'boolean') state.showLabels = true;
+  if (typeof state.listEditMode !== 'boolean') state.listEditMode = false;
   if (!state.customEvents || !Array.isArray(state.customEvents)) {
     state.customEvents = JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE));
   }
@@ -807,10 +811,30 @@ function startResize(gameId, tenths, e) {
 }
 
 /* ----------------------------- 列表视图（自动计算的后继版本日程） ----------------------------- */
+/** 生成列表视图中单个事件单元格的 HTML */
+function listEvCellHTML(game, v, ev, editMode) {
+  const cd = diffDays(ev.date, todayNoon());
+  const cdTxt = cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd));
+  const isSoon = cd >= 0 && cd <= (state.leadDays || 3);
+  const soonCls = isSoon ? 'soon' : '';
+  const customHtml = ev.title !== ev.name ? `<div class="ev-custom">${escapeHtml(ev.title)}</div>` : '';
+  if (!editMode) {
+    return `<td class="${soonCls}" title="${escapeHtml(ev.title)}">${fmtDate(ev.date)}` +
+      `<div class="muted" style="font-size:11px">${cdTxt}</div>${customHtml}</td>`;
+  }
+  // 编辑模式：可点击编辑
+  return `<td class="le-editable ${soonCls}" data-game="${game.id}" data-tenths="${v.tenths}"` +
+    ` data-hk="${ev.historyKey}" data-ev-name="${escapeAttr(ev.name)}" title="点击编辑：${escapeHtml(ev.title)}">` +
+    `<div class="le-cell-date">${fmtDate(ev.date)}</div>` +
+    `<div class="muted" style="font-size:11px">${cdTxt}</div>${customHtml}` +
+    `<span class="le-edit-hint">✏️</span></td>`;
+}
+
 function renderList() {
   const host = document.getElementById('view-list');
   let html = '';
   const list = state.games.filter(g => visibleGames[g.id] !== false);
+  const editMode = !!state.listEditMode;
   if (!list.length) { host.innerHTML = '<p class="muted">暂无游戏</p>'; return; }
   list.forEach(game => {
     const all = genGameVersions(game);
@@ -829,13 +853,14 @@ function renderList() {
     // 渲染顺序：更早历史(灰) → —今天— → 📍当前版本(高亮) → 未来(正常)
     // ---- 更早的历史版本 ----
     olderVersions.forEach(v => {
-      rows += `<tr class="vt-past"><td class="vt-ver">${v.label}</td><td>${fmtDate(v.updateDate)}</td>`;
-      v.events.forEach(ev => {
-        const cd = diffDays(ev.date, todayNoon());
-        const cdTxt = cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd));
-        rows += `<td title="${escapeHtml(ev.title)}">${fmtDate(ev.date)}<div class="muted" style="font-size:11px">${cdTxt}</div>` +
-          (ev.title !== ev.name ? `<div class="ev-custom">${escapeHtml(ev.title)}</div>` : '') + `</td>`;
-      });
+      const verTd = editMode
+        ? `<td class="vt-ver le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="ver" title="点击编辑版本信息">${v.label}<span class="le-edit-hint">✏️</span></td>`
+        : `<td class="vt-ver">${v.label}</td>`;
+      const updateTd = editMode
+        ? `<td class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="update" title="点击修改更新日期">${fmtDate(v.updateDate)}<span class="le-edit-hint">✏️</span></td>`
+        : `<td>${fmtDate(v.updateDate)}</td>`;
+      rows += `<tr class="vt-past">${verTd}${updateTd}`;
+      v.events.forEach(ev => { rows += listEvCellHTML(game, v, ev, editMode); });
       rows += `</tr>`;
     });
     // ---- 分隔线（有历史或有当前版本且有未来时才显示） ----
@@ -844,41 +869,221 @@ function renderList() {
     }
     // ---- 当前版本（高亮） ----
     if (currentVer) {
-      rows += `<tr class="vt-current"><td class="vt-ver">📍 ${currentVer.label}</td><td>${fmtDate(currentVer.updateDate)}</td>`;
-      currentVer.events.forEach(ev => {
-        const cd = diffDays(ev.date, todayNoon());
-        const cdTxt = cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd));
-        const isSoon = cd >= 0 && cd <= (state.leadDays || 3);
-        rows += `<td class="${isSoon ? 'soon' : ''}" title="${escapeHtml(ev.title)}">${fmtDate(ev.date)}` +
-          `<div class="muted" style="font-size:11px">${cdTxt}</div>` +
-          (ev.title !== ev.name ? `<div class="ev-custom">${escapeHtml(ev.title)}</div>` : '') + `</td>`;
-      });
+      const verTd = editMode
+        ? `<td class="vt-ver le-editable" data-game="${game.id}" data-tenths="${currentVer.tenths}" data-cell-type="ver" title="点击编辑版本信息">📍 ${currentVer.label}<span class="le-edit-hint">✏️</span></td>`
+        : `<td class="vt-ver">📍 ${currentVer.label}</td>`;
+      const updateTd = editMode
+        ? `<td class="le-editable" data-game="${game.id}" data-tenths="${currentVer.tenths}" data-cell-type="update" title="点击修改更新日期">${fmtDate(currentVer.updateDate)}<span class="le-edit-hint">✏️</span></td>`
+        : `<td>${fmtDate(currentVer.updateDate)}</td>`;
+      rows += `<tr class="vt-current">${verTd}${updateTd}`;
+      currentVer.events.forEach(ev => { rows += listEvCellHTML(game, currentVer, ev, editMode); });
       rows += `</tr>`;
     }
     // ---- 未来版本 ----
     futureN.forEach(v => {
-      rows += `<tr><td class="vt-ver">${v.label}</td><td>${fmtDate(v.updateDate)}</td>`;
-      v.events.forEach(ev => {
-        const cd = diffDays(ev.date, todayNoon());
-        const cdTxt = cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd));
-        const isSoon = cd >= 0 && cd <= (state.leadDays || 3);
-        rows += `<td class="${isSoon ? 'soon' : ''}" title="${escapeHtml(ev.title)}">${fmtDate(ev.date)}` +
-          `<div class="muted" style="font-size:11px">${cdTxt}</div>` +
-          (ev.title !== ev.name ? `<div class="ev-custom">${escapeHtml(ev.title)}</div>` : '') + `</td>`;
-      });
+      const verTd = editMode
+        ? `<td class="vt-ver le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="ver" title="点击编辑版本信息">${v.label}<span class="le-edit-hint">✏️</span></td>`
+        : `<td class="vt-ver">${v.label}</td>`;
+      const updateTd = editMode
+        ? `<td class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="update" title="点击修改更新日期">${fmtDate(v.updateDate)}<span class="le-edit-hint">✏️</span></td>`
+        : `<td>${fmtDate(v.updateDate)}</td>`;
+      rows += `<tr>${verTd}${updateTd}`;
+      v.events.forEach(ev => { rows += listEvCellHTML(game, v, ev, editMode); });
       rows += `</tr>`;
     });
     let head = '<th>版本</th><th>更新</th>';
     activeEvents().forEach(def => def.offsets.forEach((o, idx) => {
       head += `<th><span class="chip-dot" style="background:${eventColor(def.key, idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(def.name + (def.sub ? def.sub[idx] : ''))}</th>`;
     }));
-    html += `<div class="list-game"><div class="list-game-title">${gameIconHTML(game, 'icon')} <b>${escapeHtml(game.name)}</b>` +
+    // 编辑模式切换按钮
+    const editBtn = `<button class="vc-btn ${editMode ? 'le-btn-on' : ''}" onclick="toggleListEditMode()" style="margin-left:8px;${editMode ? 'background:var(--primary);color:#fff;border-color:var(--primary)' : ''}">${editMode ? '✏️ 修改中' : '✏️ 修改'}</button>`;
+    html += `<div class="list-game ${editMode ? 'le-mode' : ''}"><div class="list-game-title">${gameIconHTML(game, 'icon')} <b>${escapeHtml(game.name)}</b>` +
       `<span class="muted">基础 ${game.baseCycleDays}天 · 小版本上限 ${game.minorMax} · 显示过去 ${state.listPast || 2} / 未来 ${state.listCount || 8} 个版本</span>` +
-      `<button class="ghost" style="margin-left:auto" onclick="openGameModal('${game.id}')">编辑</button></div>` +
-      `<div class="calendar-scroll"><table class="ver-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
+      `${editBtn}` +
+      `<button class="ghost" style="margin-left:auto" onclick="openGameModal('${game.id}')">编辑游戏</button></div>` +
+      `<div class="calendar-scroll"><table class="ver-table ${editMode ? 'le-table' : ''}"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
   });
   host.innerHTML = html;
+  // 编辑模式下绑定单元格点击事件
+  if (editMode) bindListEditCells();
 }
+
+/** 切换列表编辑模式 */
+function toggleListEditMode() {
+  state.listEditMode = !state.listEditMode;
+  saveLocalOnly();
+}
+
+/** 为编辑模式的单元格绑定点击事件 */
+function bindListEditCells() {
+  document.querySelectorAll('#view-list .le-editable').forEach(td => {
+    td.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const gameId = td.dataset.game;
+      const tenths = Number(td.dataset.tenths);
+      const cellType = td.dataset.cellType || 'ev';
+      const hk = td.dataset.hk || '';
+      openListCellEditor(gameId, tenths, cellType, hk, td);
+    });
+  });
+}
+
+/** 打开列表单元格的内联编辑弹窗 */
+let _leActiveCell = null; // 当前正在编辑的单元格 DOM
+function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
+  // 如果已有打开的编辑器，先关闭
+  closeListCellEditor();
+
+  const game = state.games.find(g => g.id === gameId);
+  if (!game) return;
+
+  const v = genGameVersions(game).find(v => v.tenths === tenths);
+  if (!v) return;
+
+  _leActiveCell = cellEl;
+
+  // 创建内联编辑浮层
+  const editor = document.createElement('div');
+  editor.className = 'le-inline-editor';
+  editor.onclick = (e) => e.stopPropagation();
+
+  if (cellType === 'ver') {
+    // 版本信息编辑（只读展示 + 备注）
+    editor.innerHTML = `
+      <div class="le-editor-title">📋 版本 ${escapeHtml(v.label)} <small class="muted">(tenths=${tenths})</small></div>
+      <div class="field">
+        <label>更新日期</label>
+        <input type="date" id="le-date" value="${fmtDate(v.updateDate)}">
+      </div>
+      <div class="field">
+        <label>版本备注（仅本地显示）</label>
+        <input type="text" id="le-note" placeholder="可选，如「长草期」「大版本」" value="${escapeHtml(game.verNotes && game.verNotes[String(tenths)] || '')}">
+      </div>
+      <div class="modal-actions">
+        <button onclick="closeListCellEditor()">取消</button>
+        <button class="primary" onclick="saveListVerEdit('${gameId}', ${tenths})">保存</button>
+      </div>`;
+  } else if (cellType === 'update') {
+    // 更新日期编辑
+    editor.innerHTML = `
+      <div class="le-editor-title">📅 修改更新日期 — 版本 ${escapeHtml(v.label)}</div>
+      <div class="field">
+        <label>当前更新日期</label>
+        <input type="date" id="le-date" value="${fmtDate(v.updateDate)}">
+        <div class="muted" style="font-size:11px;margin-top:4px">⚠️ 修改日期会影响该版本之后所有事件的计算日期</div>
+      </div>
+      <div class="modal-actions">
+        <button onclick="closeListCellEditor()">取消</button>
+        <button class="primary" onclick="saveListUpdateDate('${gameId}', ${tenths})">保存</button>
+      </div>`;
+  } else {
+    // 事件单元格编辑
+    const ev = v.events.find(e => e.historyKey === hk);
+    if (!ev) return;
+    const tkey = evTitleKey(tenths, hk);
+    const currentTitle = (game.eventTitles && game.eventTitles[tkey]) || '';
+    editor.innerHTML = `
+      <div class="le-editor-title"><span class="chip-dot" style="background:${eventColor(ev.defKey, ev.sub ?? 0)};display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle"></span> ${escapeHtml(ev.name)} — 版本 ${escapeHtml(v.label)}</div>
+      <div class="field">
+        <label>事件日期</label>
+        <input type="date" id="le-date" value="${fmtDate(ev.date)}">
+      </div>
+      <div class="field">
+        <label>自定义标题 / 备注</label>
+        <input type="text" id="le-title" placeholder="留空则显示默认名称「${escapeHtml(ev.name)}」" value="${escapeHtml(currentTitle)}">
+      </div>
+      <div class="modal-actions">
+        <button onclick="closeListCellEditor()">取消</button>
+        <button class="primary" onclick="saveListEvEdit('${gameId}', ${tenths}, '${hk}')">保存</button>
+      </div>`;
+  }
+
+  // 定位到单元格旁边
+  const rect = cellEl.getBoundingClientRect();
+  editor.style.position = 'fixed';
+  editor.style.left = Math.min(rect.right, window.innerWidth - 320) + 'px';
+  editor.style.top = rect.top + 'px';
+  editor.style.zIndex = '200';
+
+  document.body.appendChild(editor);
+
+  // 点击外部关闭
+  setTimeout(() => {
+    document.addEventListener('click', closeListCellEditor, { once: true });
+  }, 10);
+}
+
+function closeListCellEditor() {
+  const el = document.querySelector('.le-inline-editor');
+  if (el) el.remove();
+  _leActiveCell = null;
+}
+
+/** 保存版本备注编辑 */
+window.saveListVerEdit = function(gameId, tenths) {
+  const game = state.games.find(g => g.id === gameId);
+  if (!game) return;
+  if (!game.verNotes) game.verNotes = {};
+  const noteVal = document.getElementById('le-note').value.trim();
+  if (noteVal) game.verNotes[String(tenths)] = noteVal;
+  else delete game.verNotes[String(tenths)];
+  closeListCellEditor();
+  saveAndRender();
+  toast('已保存版本备注');
+};
+
+/** 保存更新日期修改（通过调整 baseOffset 实现） */
+window.saveListUpdateDate = function(gameId, tenths) {
+  const game = state.games.find(g => g.id === gameId);
+  if (!game) return;
+  const newDateStr = document.getElementById('le-date').value;
+  if (!newDateStr) { toast('请选择日期'); return; }
+  const newDate = parseDate(newDateStr);
+  const v = genGameVersions(game).find(v => v.tenths === tenths);
+  if (!v) return;
+  // 计算偏移天数差
+  const diff = diffDays(newDate, v.updateDate);
+  if (diff === 0) { closeListCellEditor(); return; }
+  // 通过 baseOffset 调整
+  if (!game.baseOffsets) game.baseOffsets = {};
+  const oldOffset = game.baseOffsets[String(tenths)] || 0;
+  game.baseOffsets[String(tenths)] = oldOffset + diff;
+  closeListCellEditor();
+  saveAndRender();
+  toast(`已将版本${verLabel(game, tenths)}更新日期改为${newDateStr}`);
+};
+
+/** 保存事件单元格编辑 */
+window.saveListEvEdit = function(gameId, tenths, hk) {
+  const game = state.games.find(g => g.id === gameId);
+  if (!game) return;
+  const dateStr = document.getElementById('le-date').value;
+  const titleVal = document.getElementById('le-title').value.trim();
+  // 保存自定义标题
+  if (!game.eventTitles) game.eventTitles = {};
+  const tkey = evTitleKey(tenths, hk);
+  if (titleVal) game.eventTitles[tkey] = titleVal;
+  else delete game.eventTitles[tkey];
+  // 保存日期偏移（如果改了日期）
+  if (dateStr) {
+    const v = genGameVersions(game).find(v => v.tenths === tenths);
+    if (v) {
+      const ev = v.events.find(e => e.historyKey === hk);
+      if (ev) {
+        const newDate = parseDate(dateStr);
+        const diff = diffDays(newDate, ev.date);
+        if (diff !== 0) {
+          const offKey = tenths + '|' + hk;
+          if (!game.baseOffsets) game.baseOffsets = {};
+          game.baseOffsets[offKey] = diff;
+        }
+      }
+    }
+  }
+  closeListCellEditor();
+  saveAndRender();
+  toast('已保存修改');
+};
 
 /* ----------------------------- 月历渲染 ----------------------------- */
 function renderCalendar() {
@@ -1261,7 +1466,7 @@ function openGameModal(gameId) {
         id: 'g_' + Math.random().toString(36).slice(2, 9),
         name, fullName: body.querySelector('#g-full').value.trim(), color,
         icon: { type, value: ival, color }, baseCycleDays: cycle, minorMax,
-        anchorTenths, anchorDate, eventHistory: {}, baseOffsets, eventTitles: {}, versionDurations: {},
+        anchorTenths, anchorDate, eventHistory: {}, baseOffsets, eventTitles: {}, versionDurations: {}, verNotes: {},
         minorMaxBreakpoints
       };
       state.games.push(ng); visibleGames[ng.id] = true; state.visibleGames = visibleGames;
@@ -1351,6 +1556,7 @@ function importJSON(file) {
       if (typeof state.dayW !== 'number') state.dayW = 4;
       if (typeof state.listCount !== 'number') state.listCount = 8;
   if (typeof state.listPast !== 'number') state.listPast = 2;
+      if (typeof state.listEditMode !== 'boolean') state.listEditMode = false;
       visibleGames = state.visibleGames;
       saveAndRender(); toast('导入成功');
     } catch (e) { toast('导入失败：' + e.message); }
