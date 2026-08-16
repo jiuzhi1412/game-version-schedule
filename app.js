@@ -960,11 +960,12 @@ function listEvCellHTML(game, v, ev, editMode) {
   const cdTxt = cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd));
   const isSoon = cd >= 0 && cd <= (state.leadDays || 3);
   const soonCls = isSoon ? 'soon' : '';
-  const isChar = !!ev.defKey.match(/^char_/);
+  // 仅动态生成的角色事件（带 charIndex）才显示角色名标签，char_tease 等静态事件不算
+  const isDynamicChar = ev.charIndex != null;
   // 角色事件：优先从 charNames（本版本该角色通用）取角色名；普通事件：用 eventTitles
   let customHtml = '';
-  if (isChar) {
-    const ci = ev.charIndex != null ? ev.charIndex : (ev.sub ?? 0);
+  if (isDynamicChar) {
+    const ci = ev.charIndex;
     const charName = (game.charNames && game.charNames[String(v.tenths) + '|' + ci]) || '';
     // charNames 优先 → 其次 eventTitles（per-cell 覆盖）→ 都没有则不显示标签
     const displayName = charName || ((ev.title !== ev.name) ? ev.title : '');
@@ -1230,7 +1231,7 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
     const tkey = evTitleKey(tenths, hk);
     const currentTitle = (game.eventTitles && game.eventTitles[tkey]) || '';
     const isHidden = !!ev.hidden;
-    const isChar = !!ev.defKey.match(/^char_/);
+    const isChar = ev.charIndex != null; // 仅动态角色事件（char_banner/char_preview/char_pv）
     // 角色事件：从 charNames（按版本+角色索引）读取，而非 eventTitles（按具体事件）
     const ci = ev.charIndex != null ? ev.charIndex : (ev.sub ?? 0);
     const charNameKey = String(tenths) + '|' + ci;
