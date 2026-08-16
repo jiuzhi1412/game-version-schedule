@@ -1452,11 +1452,6 @@ function openGamePanel(gameId, focusTenths) {
 
     <!-- Tab 1: 基本信息 -->
     <div id="tab-gp-basic">
-      ${game ? `<div class="gp-quick-bar">
-        <button type="button" class="gp-qbtn" id="gp-q-rules" title="调整事件默认偏移、进位规则">⚙️ 偏移与规则</button>
-        <button type="button" class="gp-qbtn" id="gp-q-cols" title="设置列表中显示/隐藏的事件列">📋 列设置</button>
-        <button type="button" class="gp-qbtn" id="gp-q-edit" title="切换列表视图的编辑模式">✏️ 列表编辑</button>
-      </div>` : ''}
       <div class="field"><label>昵称（必填）</label><input type="text" id="g-name" value="${game ? escapeAttr(game.name) : ''}" placeholder="如 原神"></div>
       <div class="field"><label>全称（选填）</label><input type="text" id="g-full" value="${game ? escapeAttr(game.fullName || '') : ''}" placeholder="如 Genshin Impact"></div>
       <div class="field"><label>主题色</label><div class="row"><input type="color" id="g-color" value="${game ? game.color : '#22c55e'}" style="width:50px;padding:2px"><input type="text" id="g-color-t" value="${game ? game.color : '#22c55e'}" style="max-width:100px"></div>
@@ -1517,14 +1512,6 @@ function openGamePanel(gameId, focusTenths) {
   body.querySelectorAll('.mtab').forEach(t => {
     if (!t.disabled) t.onclick = () => switchTab(t.dataset.tab);
   });
-
-  /* ---- 快捷操作栏 ---- */
-  const qRules = body.querySelector('#gp-q-rules');
-  if (qRules) qRules.onclick = () => switchGpTab('gp-rules');
-  const qCols = body.querySelector('#gp-q-cols');
-  if (qCols) qCols.onclick = () => { hideModal(); setTimeout(() => openColSettings(gameId), 100); };
-  const qEdit = body.querySelector('#gp-q-edit');
-  if (qEdit) qEdit.onclick = () => { hideModal(); toggleListEditMode(); };
 
   /* ---- 基本信息：图标预览同步（复用原逻辑）---- */
   setupIconSync(body, game, ic);

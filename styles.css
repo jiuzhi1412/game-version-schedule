@@ -224,11 +224,6 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 .mtab:hover { background: var(--panel-2); }
 .mtab.active { color: var(--primary); border-bottom-color: var(--primary); }
 
-/* 快捷操作栏 */
-.gp-quick-bar { display: flex; gap: 8px; margin-bottom: 14px; padding: 10px 12px; background: var(--panel-2); border-radius: var(--radius); border: 1px solid var(--border); flex-wrap: wrap; }
-.gp-qbtn { padding: 6px 12px; font-size: 12px; border: 1px solid var(--border); background: var(--panel); border-radius: 6px; cursor: pointer; transition: all .15s ease; display: inline-flex; align-items: center; gap: 4px; }
-.gp-qbtn:hover { background: var(--primary); color: #fff; border-color: var(--primary); transform: translateY(-1px); box-shadow: 0 2px 6px rgba(34,197,94,.20); }
-
 /* ---------- 设置：事件管理行 ---------- */
 #set-ev-list { max-height: 360px; overflow-y: auto; }
 .set-ev-row {
