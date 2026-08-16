@@ -2142,9 +2142,13 @@ function openSettings() {
   document.getElementById('modal-title').textContent = '⚙ 设置';
 
   /* ---- 构建 HTML ---- */
-  const evts = state.customEvents || [];
+  // 过滤已废弃的旧 key（与 activeEvents 渲染源头一致），但保留原始索引用于操作
+  const rawEvts = state.customEvents || [];
   let evRows = '';
-  evts.forEach((ev, i) => {
+  rawEvts.forEach((ev, i) => {
+    // 跳过已废弃的旧 key
+    if (ev.key === 'char_pv' || ev.key === 'char_preview') return;
+    if (ev.key === 'banner' && Array.isArray(ev.offsets) && ev.offsets.length > 1) return;
     const hidden = !!ev.hidden;
     const color = EVENT_COLORS[ev.key] || '#64748b';
     const offStr = (ev.offsets || []).join(', ');
