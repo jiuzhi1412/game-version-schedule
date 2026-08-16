@@ -42,7 +42,12 @@ function generateCharEvents(charCount) {
 
 /** 获取当前生效的事件定义列表（过滤掉 hidden 的，含动态生成的角色事件） */
 function activeEvents() {
-  const base = (state.customEvents || EVENT_DEFS_TEMPLATE).filter(e => e.hidden !== true);
+  // 渲染源头过滤已废弃的旧 key：旧 char_pv/char_preview（已被角色分组替代）、banner 的下半（已被角色二卡池替代）
+  const base = (state.customEvents || EVENT_DEFS_TEMPLATE).filter(e =>
+    e.hidden !== true &&
+    e.key !== 'char_pv' && e.key !== 'char_preview' &&
+    !(e.key === 'banner' && Array.isArray(e.offsets) && e.offsets.length > 1)
+  );
   // 追加动态角色事件（从第一个游戏取 charCount，或默认2）
   const charCount = (state.games && state.games[0] && state.games[0].charCount) || 2;
   return base.concat(generateCharEvents(charCount));
