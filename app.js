@@ -959,7 +959,17 @@ function listEvCellHTML(game, v, ev, editMode) {
   const cdTxt = cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd));
   const isSoon = cd >= 0 && cd <= (state.leadDays || 3);
   const soonCls = isSoon ? 'soon' : '';
-  const customHtml = ev.title !== ev.name ? `<div class="ev-custom">${escapeHtml(ev.title)}</div>` : '';
+  const isChar = !!ev.defKey.match(/^char_/);
+  // 角色事件的自定义标题显示为彩色标签，普通事件显示为灰色小字
+  let customHtml = '';
+  if (ev.title !== ev.name) {
+    if (isChar) {
+      const tagColor = eventColor(ev.defKey, ev.charIndex ?? ev.sub ?? 0);
+      customHtml = `<div class="ev-char-tag" style="background:${tagColor}18;color:${tagColor};border:1px solid ${tagColor}44">${escapeHtml(ev.title)}</div>`;
+    } else {
+      customHtml = `<div class="ev-custom">${escapeHtml(ev.title)}</div>`;
+    }
+  }
 
   // 该版本无此事件：显示空占位（编辑模式下可点击恢复）
   if (ev.hidden) {
@@ -1160,6 +1170,8 @@ function bindListEditCells() {
 
 /** 打开列表单元格的内联编辑弹窗 */
 let _leActiveCell = null; // 当前正在编辑的单元格 DOM
+var _leCloseGuard = false;
+var _leMousedownHandler = null;
 function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
   // 如果已有打开的编辑器，先关闭
   closeListCellEditor();
@@ -1213,6 +1225,7 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
     const tkey = evTitleKey(tenths, hk);
     const currentTitle = (game.eventTitles && game.eventTitles[tkey]) || '';
     const isHidden = !!ev.hidden;
+    const isChar = !!ev.defKey.match(/^char_/);
     editor.innerHTML = `
       <div class="le-editor-title"><span class="chip-dot" style="background:${eventColor(ev.defKey, ev.charIndex ?? ev.sub ?? 0)};display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle"></span> ${escapeHtml(ev.name)} — 版本 ${escapeHtml(v.label)}</div>
       <div class="field">
@@ -1220,8 +1233,8 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
         <input type="date" id="le-date" value="${fmtDate(ev.date)}" ${isHidden ? 'disabled' : ''}>
       </div>
       <div class="field">
-        <label>自定义标题 / 备注</label>
-        <input type="text" id="le-title" placeholder="留空则显示默认名称「${escapeHtml(ev.name)}」" value="${escapeHtml(currentTitle)}" ${isHidden ? 'disabled' : ''}>
+        <label>${isChar ? '角色名 / 备注' : '自定义标题 / 备注'}</label>
+        <input type="text" id="le-title" placeholder="${isChar ? '如：纳西妲、芙宁娜（留空则不显示）' : '留空则显示默认名称'}" value="${escapeHtml(currentTitle)}" ${isHidden ? 'disabled' : ''}>
       </div>
       <label class="le-hide-check">
         <input type="checkbox" id="le-hide" ${isHidden ? 'checked' : ''} />
@@ -1242,16 +1255,23 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
 
   document.body.appendChild(editor);
 
-  // 点击外部关闭
-  setTimeout(() => {
-    document.addEventListener('click', closeListCellEditor, { once: true });
-  }, 10);
+  // 点击外部关闭（用 mousedown 更可靠）
+  _leCloseGuard = true;
+  setTimeout(() => { _leCloseGuard = false; }, 150);
+  if (!_leMousedownHandler) {
+    _leMousedownHandler = function(e) {
+      const el = document.querySelector('.le-inline-editor');
+      if (el && !_leCloseGuard && !el.contains(e.target)) closeListCellEditor();
+    };
+  }
+  document.addEventListener('mousedown', _leMousedownHandler, true);
 }
 
 function closeListCellEditor() {
   const el = document.querySelector('.le-inline-editor');
   if (el) el.remove();
   _leActiveCell = null;
+  if (_leMousedownHandler) document.removeEventListener('mousedown', _leMousedownHandler, true);
 }
 
 /** 保存版本备注编辑 */

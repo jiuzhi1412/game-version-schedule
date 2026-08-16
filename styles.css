@@ -349,6 +349,7 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 .ver-table td.soon { background: #fff7ed; }
 .ver-table td.soon .muted { color: #ea580c; font-weight: 700; }
 .ev-custom { color: var(--primary); font-size: 11px; margin-top: 2px; }
+.ev-char-tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; margin-top: 3px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .ver-table tr.vt-past td { color: #94a3b8; background: #f8fafc; }
 .ver-table tr.vt-past td.vt-ver { color: #64748b; }
 .ver-table tr.vt-current td { background: #fefce8; font-weight: 600; }
