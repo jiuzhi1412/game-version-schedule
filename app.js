@@ -492,6 +492,10 @@ async function init() {
   if (!state.customEvents || !Array.isArray(state.customEvents)) {
     state.customEvents = JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE));
   }
+  // 清除旧静态 char_preview/char_pv（已改为按 charCount 动态生成，避免重复列）
+  const oldLen = state.customEvents.length;
+  state.customEvents = state.customEvents.filter(e => e.key !== 'char_preview' && e.key !== 'char_pv');
+  if (state.customEvents.length !== oldLen) Storage.save(state); // 有清理则立即保存
   state.games.forEach(migrateGame);
   visibleGames = state.visibleGames;
   render();
@@ -1075,11 +1079,9 @@ function renderList() {
       });
     });
     const head = `<tr>${headRow1}</tr>${headRow2 ? '<tr>' + headRow2 + '</tr>' : ''}`;
-    // 编辑模式切换 + 列设置按钮（仅编辑模式显示）
+    // 编辑模式切换 + 列设置按钮（始终可见，方便恢复误隐藏的列）
     const editBtn = `<button class="vc-btn ${editMode ? 'le-btn-on' : ''}" onclick="toggleListEditMode()" style="margin-left:8px;${editMode ? 'background:var(--primary);color:#fff;border-color:var(--primary)' : ''}">${editMode ? '✏️ 修改中' : '✏️ 修改'}</button>`;
-    const colBtn = editMode
-      ? `<button class="vc-btn" onclick="openColSettings('${game.id}', this)" title="设置显示/隐藏的列">⚙️ 列</button>`
-      : '';
+    const colBtn = `<button class="vc-btn" onclick="openColSettings('${game.id}', this)" title="设置显示/隐藏的列">⚙️ 列</button>`;
     html += `<div class="list-game ${editMode ? 'le-mode' : ''}" data-game-id="${game.id}"><div class="list-game-title">${gameIconHTML(game, 'icon')} <b>${escapeHtml(game.name)}</b>` +
       `<span class="muted">基础 ${game.baseCycleDays}天 · 小版本上限 ${game.minorMax} · 显示过去 ${state.listPast || 2} / 未来 ${state.listCount || 8} 个版本</span>` +
       `${editBtn}${colBtn}` +
@@ -1303,7 +1305,6 @@ window.saveListEvEdit = function(gameId, tenths, hk) {
 };
 
 /* ----------------------------- 列设置面板（按游戏隐藏/显示事件列） ----------------------------- */
-let _colSettingsEl = null; // 当前打开的列设置面板
 
 /** 打开某个游戏的列设置浮层 */
 window.openColSettings = function(gameId, btnEl) {
@@ -1338,7 +1339,7 @@ window.openColSettings = function(gameId, btnEl) {
 
   panel.innerHTML = `
     <div class="le-editor-title">⚙️ 列设置 — ${escapeHtml(game.name)}</div>
-    <div class="col-set-hint">勾选要显示的列，取消勾选可隐藏</div>
+    <div class="col-set-hint">勾选要显示的列，取消勾选可隐藏（隐藏后可随时在此恢复）</div>
     <div class="col-set-list">${itemsHtml}</div>
     <div class="modal-actions">
       <button onclick="closeColSettings()">取消</button>
@@ -1356,14 +1357,30 @@ window.openColSettings = function(gameId, btnEl) {
   document.body.appendChild(panel);
   _colSettingsEl = panel;
 
-  // 点击外部关闭
-  setTimeout(() => {
-    document.addEventListener('click', closeColSettings, { once: true });
-  }, 0);
+  // 用 mousedown 监听外部点击关闭（比 click 更可靠，不受按钮冒泡干扰）
+  // 加 150ms 防抖，避免打开按钮的同一次 mousedown 立刻触发关闭
+  _colSettingsCloseGuard = true;
+  setTimeout(() => { _colSettingsCloseGuard = false; }, 150);
+  if (!_colSettingsMousedownHandler) {
+    _colSettingsMousedownHandler = function(e) {
+      if (_colSettingsEl && !_colSettingsCloseGuard && !_colSettingsEl.contains(e.target)) {
+        closeColSettings();
+      }
+    };
+  }
+  document.addEventListener('mousedown', _colSettingsMousedownHandler, true); // capture phase
 };
+
+// 列设置面板状态变量
+var _colSettingsEl = null;
+var _colSettingsMousedownHandler = null;
+var _colSettingsCloseGuard = false;
 
 function closeColSettings() {
   if (_colSettingsEl) { _colSettingsEl.remove(); _colSettingsEl = null; }
+  if (_colSettingsMousedownHandler) {
+    document.removeEventListener('mousedown', _colSettingsMousedownHandler, true);
+  }
 }
 
 /** 保存列设置 */
