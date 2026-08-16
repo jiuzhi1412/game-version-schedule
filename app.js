@@ -184,6 +184,7 @@ function applyRemoteState(remote) {
   if (!state.customEvents || !Array.isArray(state.customEvents)) state.customEvents = JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE));
   if (typeof state.dayW !== 'number') state.dayW = 4;
   if (typeof state.listCount !== 'number') state.listCount = 8;
+  if (typeof state.listPast !== 'number') state.listPast = 2;
   if (typeof state.showLabels !== 'boolean') state.showLabels = true;
   state.games.forEach(migrateGame);
   visibleGames = state.visibleGames || {};
@@ -315,6 +316,7 @@ async function restoreFromFile() {
     if (!state.customEvents || !Array.isArray(state.customEvents)) state.customEvents = JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE));
     if (typeof state.dayW !== 'number') state.dayW = 4;
     if (typeof state.listCount !== 'number') state.listCount = 8;
+  if (typeof state.listPast !== 'number') state.listPast = 2;
     if (typeof state.showLabels !== 'boolean') state.showLabels = true;
     state.games.forEach(migrateGame);
     visibleGames = state.visibleGames || {};
@@ -352,7 +354,7 @@ function defaultState() {
     customEvents: JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE)),
     viewStart: fmtDate(addDays(todayNoon(), -60)),
     viewEnd: fmtDate(addDays(todayNoon(), 400)),
-    visibleGames: vis, dayW: 4, listCount: 8, showLabels: true
+    visibleGames: vis, dayW: 4, listCount: 8, listPast: 2, showLabels: true
   };
 }
 
@@ -388,6 +390,7 @@ async function init() {
   }
   if (typeof state.dayW !== 'number') state.dayW = 4;
   if (typeof state.listCount !== 'number') state.listCount = 8;
+  if (typeof state.listPast !== 'number') state.listPast = 2;
   if (typeof state.showLabels !== 'boolean') state.showLabels = true;
   if (!state.customEvents || !Array.isArray(state.customEvents)) {
     state.customEvents = JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE));
@@ -670,11 +673,14 @@ function renderViewControls() {
     document.getElementById('vc-cal-today').onclick = () => { state.calFocus = fmtCalFocus(todayNoon()); saveAndRender(); };
     setTimeout(() => { const el = document.getElementById('month-' + f); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30);
   } else {
-    bar.innerHTML = `<span class="vc-label">显示未来版本数</span>` +
-      `<input type="number" id="vc-listcount" min="1" max="30" value="${state.listCount || 8}" style="width:64px">` +
+    bar.innerHTML = `<span class="vc-label">显示过去</span>` +
+      `<input type="number" id="vc-listpast" min="0" max="30" value="${state.listPast || 2}" style="width:56px">` +
+      `<span class="muted">个版本 · 未来</span>` +
+      `<input type="number" id="vc-listcount" min="1" max="30" value="${state.listCount || 8}" style="width:56px">` +
       `<span class="muted">个版本</span>` +
       `<span class="muted">点游戏右侧“编辑”改周期/进位规则</span>`;
     bar.classList.remove('hidden');
+    document.getElementById('vc-listpast').onchange = (e) => { state.listPast = Math.max(0, Math.min(30, Number(e.target.value) || 0)); saveAndRender(); };
     document.getElementById('vc-listcount').onchange = (e) => { state.listCount = Math.max(1, Math.min(30, Number(e.target.value) || 8)); saveAndRender(); };
   }
 }
@@ -796,11 +802,22 @@ function renderList() {
   const list = state.games.filter(g => visibleGames[g.id] !== false);
   if (!list.length) { host.innerHTML = '<p class="muted">暂无游戏</p>'; return; }
   list.forEach(game => {
-    let versions = genGameVersions(game).filter(v => v.updateDate.getTime() >= addDays(todayNoon(), -1).getTime());
-    versions = versions.slice(0, state.listCount || 8);
+    const all = genGameVersions(game);
+    const tMs = addDays(todayNoon(), -1).getTime();
+    const past = all.filter(v => v.updateDate.getTime() < tMs);
+    const future = all.filter(v => v.updateDate.getTime() >= tMs);
+    const pastN = past.slice(-(state.listPast || 2));
+    const futureN = future.slice(0, state.listCount || 8);
+    const cols = 2 + activeEvents().reduce((a, d) => a + d.offsets.length, 0);
     let rows = '';
-    versions.forEach(v => {
-      rows += `<tr><td class="vt-ver">${v.label}</td><td>${fmtDate(v.updateDate)}</td>`;
+    let dividerDone = false;
+    [...pastN, ...futureN].forEach((v, i) => {
+      if (!dividerDone && pastN.length && futureN.length && i === pastN.length) {
+        rows += `<tr class="vt-divider"><td colspan="${cols}">— 今天 —</td></tr>`;
+        dividerDone = true;
+      }
+      const pastCls = i < pastN.length ? ' class="vt-past"' : '';
+      rows += `<tr${pastCls}><td class="vt-ver">${v.label}</td><td>${fmtDate(v.updateDate)}</td>`;
       v.events.forEach(ev => {
         const cd = diffDays(ev.date, todayNoon());
         const cdTxt = cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd));
@@ -816,7 +833,7 @@ function renderList() {
       head += `<th><span class="chip-dot" style="background:${eventColor(def.key, idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(def.name + (def.sub ? def.sub[idx] : ''))}</th>`;
     }));
     html += `<div class="list-game"><div class="list-game-title">${gameIconHTML(game, 'icon')} <b>${escapeHtml(game.name)}</b>` +
-      `<span class="muted">基础 ${game.baseCycleDays}天 · 小版本上限 ${game.minorMax} · 显示未来 ${state.listCount || 8} 个版本</span>` +
+      `<span class="muted">基础 ${game.baseCycleDays}天 · 小版本上限 ${game.minorMax} · 显示过去 ${state.listPast || 2} / 未来 ${state.listCount || 8} 个版本</span>` +
       `<button class="ghost" style="margin-left:auto" onclick="openGameModal('${game.id}')">编辑</button></div>` +
       `<div class="calendar-scroll"><table class="ver-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
   });
@@ -1293,6 +1310,7 @@ function importJSON(file) {
       state.games.forEach(migrateGame);
       if (typeof state.dayW !== 'number') state.dayW = 4;
       if (typeof state.listCount !== 'number') state.listCount = 8;
+  if (typeof state.listPast !== 'number') state.listPast = 2;
       visibleGames = state.visibleGames;
       saveAndRender(); toast('导入成功');
     } catch (e) { toast('导入失败：' + e.message); }
@@ -1377,7 +1395,7 @@ function openSettings() {
     </div>
     <div id="tab-s-basic">
       <div class="field"><label>临近提醒提前天数</label><input type="number" id="s-lead" min="1" max="30" value="${state.leadDays || LEAD_DEFAULT}"></div>
-      <div class="field"><label>列表视图显示未来版本数</label><input type="number" id="s-list" min="1" max="30" value="${state.listCount || 8}"></div>
+      <div class="field"><label>列表视图显示版本数（过去 / 未来）</label><div style="display:flex;gap:8px;align-items:center"><input type="number" id="s-listpast" min="0" max="30" value="${state.listPast || 2}" style="width:72px"> 过去 <input type="number" id="s-list" min="1" max="30" value="${state.listCount || 8}" style="width:72px"> 未来</div></div>
       <div class="field"><label>视图起始（今天往前，天）</label><input type="number" id="s-back" min="0" max="365" value="${diffDays(todayNoon(), parseDate(state.viewStart))}"></div>
       <div class="field"><label>视图结束（今天往后，天）</label><input type="number" id="s-fwd" min="30" max="1095" value="${diffDays(parseDate(state.viewEnd), todayNoon())}"></div>
       <div class="field"><label>时间轴缩放（像素/天）</label><input type="range" id="s-zoom" min="2" max="24" value="${state.dayW || 4}" style="width:200px"> <span id="s-zoom-v">${state.dayW || 4}px</span></div>
@@ -1461,6 +1479,7 @@ function openSettings() {
     // 基础
     state.leadDays = Math.max(1, Math.min(30, Number(body.querySelector('#s-lead').value) || LEAD_DEFAULT));
     state.listCount = Math.max(1, Math.min(30, Number(body.querySelector('#s-list').value) || 8));
+    state.listPast = Math.max(0, Math.min(30, Number(body.querySelector('#s-listpast').value) || 0));
     const back = Math.max(0, Number(body.querySelector('#s-back').value) || 60);
     const fwd = Math.max(30, Number(body.querySelector('#s-fwd').value) || 400);
     state.viewStart = fmtDate(addDays(todayNoon(), -back));

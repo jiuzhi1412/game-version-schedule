@@ -346,6 +346,9 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 .ver-table td.soon { background: #fff7ed; }
 .ver-table td.soon .muted { color: #ea580c; font-weight: 700; }
 .ev-custom { color: var(--primary); font-size: 11px; margin-top: 2px; }
+.ver-table tr.vt-past td { color: #94a3b8; background: #f8fafc; }
+.ver-table tr.vt-past td.vt-ver { color: #64748b; }
+.ver-table tr.vt-divider td { background: #eef2ff; color: #6366f1; font-weight: 700; text-align: center; letter-spacing: 2px; padding: 3px; }
 
 /* ---------- 进位规则行 ---------- */
 .bp-row {
