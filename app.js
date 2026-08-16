@@ -473,6 +473,7 @@ function migrateGame(g) {
   if (!g.verUpdateDates) g.verUpdateDates = {};
   if (!g.hiddenEventKeys) g.hiddenEventKeys = [];
   if (!g.verHiddenEvents) g.verHiddenEvents = {};
+  if (!g.charNames) g.charNames = {}; // key: "tenths|charIndex" → 角色名，如 "70|0": "奥黛塔"
   if (typeof g.charCount !== 'number') g.charCount = 2;
 }
 
@@ -960,15 +961,19 @@ function listEvCellHTML(game, v, ev, editMode) {
   const isSoon = cd >= 0 && cd <= (state.leadDays || 3);
   const soonCls = isSoon ? 'soon' : '';
   const isChar = !!ev.defKey.match(/^char_/);
-  // 角色事件的自定义标题显示为彩色标签，普通事件显示为灰色小字
+  // 角色事件：优先从 charNames（本版本该角色通用）取角色名；普通事件：用 eventTitles
   let customHtml = '';
-  if (ev.title !== ev.name) {
-    if (isChar) {
-      const tagColor = eventColor(ev.defKey, ev.charIndex ?? ev.sub ?? 0);
-      customHtml = `<div class="ev-char-tag" style="background:${tagColor}18;color:${tagColor};border:1px solid ${tagColor}44">${escapeHtml(ev.title)}</div>`;
-    } else {
-      customHtml = `<div class="ev-custom">${escapeHtml(ev.title)}</div>`;
+  if (isChar) {
+    const ci = ev.charIndex != null ? ev.charIndex : (ev.sub ?? 0);
+    const charName = (game.charNames && game.charNames[String(v.tenths) + '|' + ci]) || '';
+    // charNames 优先 → 其次 eventTitles（per-cell 覆盖）→ 都没有则不显示标签
+    const displayName = charName || ((ev.title !== ev.name) ? ev.title : '');
+    if (displayName) {
+      const tagColor = eventColor(ev.defKey, ci);
+      customHtml = `<div class="ev-char-tag" style="background:${tagColor}18;color:${tagColor};border:1px solid ${tagColor}44">${escapeHtml(displayName)}</div>`;
     }
+  } else if (ev.title !== ev.name) {
+    customHtml = `<div class="ev-custom">${escapeHtml(ev.title)}</div>`;
   }
 
   // 该版本无此事件：显示空占位（编辑模式下可点击恢复）
@@ -1226,15 +1231,26 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
     const currentTitle = (game.eventTitles && game.eventTitles[tkey]) || '';
     const isHidden = !!ev.hidden;
     const isChar = !!ev.defKey.match(/^char_/);
+    // 角色事件：从 charNames（按版本+角色索引）读取，而非 eventTitles（按具体事件）
+    const ci = ev.charIndex != null ? ev.charIndex : (ev.sub ?? 0);
+    const charNameKey = String(tenths) + '|' + ci;
+    const currentCharName = (isChar && game.charNames && game.charNames[charNameKey]) || '';
     editor.innerHTML = `
       <div class="le-editor-title"><span class="chip-dot" style="background:${eventColor(ev.defKey, ev.charIndex ?? ev.sub ?? 0)};display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle"></span> ${escapeHtml(ev.name)} — 版本 ${escapeHtml(v.label)}</div>
       <div class="field">
         <label>事件日期</label>
         <input type="date" id="le-date" value="${fmtDate(ev.date)}" ${isHidden ? 'disabled' : ''}>
       </div>
+      ${isChar ? `
       <div class="field">
-        <label>${isChar ? '角色名 / 备注' : '自定义标题 / 备注'}</label>
-        <input type="text" id="le-title" placeholder="${isChar ? '如：纳西妲、芙宁娜（留空则不显示）' : '留空则显示默认名称'}" value="${escapeHtml(currentTitle)}" ${isHidden ? 'disabled' : ''}>
+        <label>角色名（本版本该角色通用）</label>
+        <input type="text" id="le-char-name" placeholder="如：奥黛塔、芙宁娜（填写后卡池/预告/PV 同步显示）" value="${escapeHtml(currentCharName)}" ${isHidden ? 'disabled' : ''}>
+        <div class="muted" style="font-size:11px;margin-top:4px">✨ 只需填写一次，该版本此角色的「卡池·预告·PV」三列都会显示</div>
+      </div>` : `
+      <div class="field">
+        <label>自定义标题 / 备注</label>
+        <input type="text" id="le-title" placeholder="留空则显示默认名称" value="${escapeHtml(currentTitle)}" ${isHidden ? 'disabled' : ''}>
+      </div>`}
       </div>
       <label class="le-hide-check">
         <input type="checkbox" id="le-hide" ${isHidden ? 'checked' : ''} />
@@ -1326,12 +1342,26 @@ window.saveListEvEdit = function(gameId, tenths, hk) {
   }
 
   const dateStr = document.getElementById('le-date').value;
-  const titleVal = document.getElementById('le-title').value.trim();
-  // 保存自定义标题
-  if (!game.eventTitles) game.eventTitles = {};
-  const tkey = evTitleKey(tenths, hk);
-  if (titleVal) game.eventTitles[tkey] = titleVal;
-  else delete game.eventTitles[tkey];
+  // 角色事件：保存到 charNames（本版本该角色通用）；普通事件：保存到 eventTitles
+  const charNameInput = document.getElementById('le-char-name');
+  if (charNameInput) {
+    // 角色事件
+    const charNameVal = charNameInput.value.trim();
+    if (!game.charNames) game.charNames = {};
+    const v = genGameVersions(game).find(v => v.tenths === tenths);
+    const ev = v ? v.events.find(e => e.historyKey === hk) : null;
+    const ci = ev && ev.charIndex != null ? ev.charIndex : 0;
+    const cnKey = String(tenths) + '|' + ci;
+    if (charNameVal) game.charNames[cnKey] = charNameVal;
+    else delete game.charNames[cnKey];
+  } else {
+    // 普通事件
+    const titleVal = (document.getElementById('le-title') || {}).value?.trim() || '';
+    if (!game.eventTitles) game.eventTitles = {};
+    const tkey = evTitleKey(tenths, hk);
+    if (titleVal) game.eventTitles[tkey] = titleVal;
+    else delete game.eventTitles[tkey];
+  }
   // 保存日期偏移（逐版本覆盖，存入 verEventOffsets）
   if (dateStr) {
     const v = genGameVersions(game).find(v => v.tenths === tenths);
