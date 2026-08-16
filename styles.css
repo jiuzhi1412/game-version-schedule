@@ -372,6 +372,7 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 /* ---------- 列表编辑模式 ---------- */
 .le-mode { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary-soft); }
 .le-table { border-collapse: separate; border-spacing: 0; }
+.char-group-head { letter-spacing: 1px; }
 .le-editable {
   cursor: pointer; position: relative; transition: background .15s;
 }

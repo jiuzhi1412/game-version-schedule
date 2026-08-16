@@ -13,16 +13,39 @@ const EVENT_DEFS_TEMPLATE = [
   { key: 'version_update',  name: '版本更新', offsets: [0] },
   { key: 'banner',          name: '卡池更新', offsets: [0, 21], sub: ['上半', '下半'] },
   { key: 'char_tease',      name: '新角色爆料', offsets: [33] },
-  { key: 'char_preview',    name: '角色预告', offsets: [34] },
-  { key: 'char_pv',         name: '角色PV', offsets: [35] },
+  // 角色预告/PV 不再作为独立顶层事件，改为按 game.charCount 动态生成（见 generateCharEvents）
   { key: 'version_preview', name: '版本前瞻', offsets: [35] },
 ];
 // 向后兼容别名
 const EVENT_DEFS = EVENT_DEFS_TEMPLATE;
 
-/** 获取当前生效的事件定义列表（过滤掉 hidden 的） */
+/**
+ * 根据角色数量动态生成角色相关事件定义。
+ * 每个角色产生：角色卡池N / 预告N(-2天) / PVN(-3天)
+ * 默认 charCount=2，第1个角色与卡池上半同天，第2个角色延后1天
+ */
+function generateCharEvents(charCount) {
+  const n = Math.max(1, Math.min(6, charCount || 2)); // 限制 1~6 个角色
+  const evts = [];
+  const CHARS = ['一', '二', '三', '四', '五', '六'];
+  // 基准偏移：角色1卡池=卡池上半(0)，角色2卡池=+1天，以此类推
+  const baseOffsets = [0, 1, 2, 3, 4, 5];
+  for (let i = 0; i < n; i++) {
+    const base = baseOffsets[i] || 0;
+    const label = CHARS[i] || String(i + 1);
+    evts.push({ key: 'char_banner', name: '角色' + label, offsets: [base], sub: ['卡池'], charIndex: i, _isChar: true });
+    evts.push({ key: 'char_preview', name: '角色' + label, offsets: [base - 2], sub: ['预告'], charIndex: i, _isChar: true, _charParent: 'char_banner_' + i });
+    evts.push({ key: 'char_pv', name: '角色' + label, offsets: [base - 3], sub: ['PV'], charIndex: i, _isChar: true, _charParent: 'char_banner_' + i });
+  }
+  return evts;
+}
+
+/** 获取当前生效的事件定义列表（过滤掉 hidden 的，含动态生成的角色事件） */
 function activeEvents() {
-  return (state.customEvents || EVENT_DEFS_TEMPLATE).filter(e => e.hidden !== true);
+  const base = (state.customEvents || EVENT_DEFS_TEMPLATE).filter(e => e.hidden !== true);
+  // 追加动态角色事件（从第一个游戏取 charCount，或默认2）
+  const charCount = (state.games && state.games[0] && state.games[0].charCount) || 2;
+  return base.concat(generateCharEvents(charCount));
 }
 
 /**
@@ -32,10 +55,15 @@ function activeEvents() {
 function gameActiveEvents(game) {
   const hidden = (game && game.hiddenEventKeys) || [];
   const hiddenSet = new Set(hidden);
-  return activeEvents().filter(def => {
+  const base = activeEvents().filter(e => e.hidden !== true);
+  // 每个游戏用自己的 charCount 覆盖全局角色事件
+  const staticEvts = base.filter(e => !e._isChar);
+  const charCount = (game && game.charCount) || 2;
+  const charEvts = generateCharEvents(charCount);
+  return staticEvts.concat(charEvts).filter(def => {
     // 如果该事件只有一个 offset 且其子 key 被隐藏，整行隐藏
     if (def.offsets.length === 1) {
-      const k = def.key + '_0';
+      const k = def.key + '_' + (def.charIndex ?? 0);
       if (hiddenSet.has(k)) return false;
     }
     // 多 offset 事件：检查每个子 key，过滤掉被隐藏的
@@ -62,15 +90,24 @@ function gameActiveEvents(game) {
 /* 事件类型配色（更丰富的区分度） */
 const EVENT_COLORS = {
   version_update: '#16a34a',
-  banner_0: '#2563eb',
-  banner_1: '#38bdf8',
+  banner_0: '#2563eb', banner_1: '#38bdf8',
   char_tease: '#f97316',
-  char_preview: '#a855f7',
-  char_pv: '#ec4899',
+  char_preview: '#a855f7', char_pv: '#ec4899',
   version_preview: '#e11d48',
+  // 动态角色卡池：每个角色一组渐变色
+  char_banner_0: '#f43f5e', char_preview_0: '#fb7185', char_pv_0: '#fda4af',
+  char_banner_1: '#7c3aed', char_preview_1: '#a78bfa', char_pv_1: '#c4b5fd',
+  char_banner_2: '#0369a1', char_preview_2: '#38bdf8', char_pv_2: '#7dd3fc',
+  char_banner_3: '#15803d', char_preview_3: '#4ade80', char_pv_3: '#86efac',
+  char_banner_4: '#a16207', char_preview_4: '#fbbf24', char_pv_4: '#fde68a',
+  char_banner_5: '#be185d', char_preview_5: '#f472b6', char_pv_5: '#fbcfe8',
 };
 function eventColor(defKey, idx) {
   if (defKey === 'banner') return EVENT_COLORS['banner_' + idx];
+  // 角色事件带 charIndex
+  if (defKey === 'char_banner' || defKey === 'char_preview' || defKey === 'char_pv') {
+    return EVENT_COLORS[defKey + '_' + (idx ?? 0)] || EVENT_COLORS[defKey] || '#64748b';
+  }
   return EVENT_COLORS[defKey] || '#64748b';
 }
 
@@ -423,6 +460,7 @@ function migrateGame(g) {
   if (!g.verUpdateDates) g.verUpdateDates = {};
   if (!g.hiddenEventKeys) g.hiddenEventKeys = [];
   if (!g.verHiddenEvents) g.verHiddenEvents = {};
+  if (typeof g.charCount !== 'number') g.charCount = 2;
 }
 
 async function init() {
@@ -532,9 +570,10 @@ function genGameVersions(game) {
     const updateDate = vud ? parseDate(vud) : new Date(dMs);
     const dur = durationOf(game, t);
     const events = [];
-    activeEvents().forEach(def => {
+    gameActiveEvents(game).forEach(def => {
       def.offsets.forEach((defOff, idx) => {
-        const hk = def.key + (def.offsets.length > 1 ? '_' + idx : '');
+        const hk = def.key + (def.offsets.length > 1 || def.charIndex != null
+          ? '_' + (def.charIndex != null ? def.charIndex : idx) : '');
         const off = eventOffset(game, hk, defOff, t);
         const name = def.name + (def.sub ? def.sub[idx] : '');
         const custom = game.eventTitles && game.eventTitles[evTitleKey(t, hk)];
@@ -543,6 +582,7 @@ function genGameVersions(game) {
         const hidden = !!(game.verHiddenEvents && game.verHiddenEvents[t + '|' + hk]);
         events.push({
           defKey: def.key, historyKey: hk, sub: def.offsets.length > 1 ? idx : null,
+          charIndex: def.charIndex != null ? def.charIndex : null,
           name, title, date: addDays(updateDate, off), offset: off, hidden
         });
       });
@@ -685,8 +725,11 @@ function reorderEvents(fromKey, toKey) {
 }
 
 /* ----------------------------- 视图统一设置条 + 时间轴侧栏 ----------------------------- */
-const SHORT = { version_update: '更新', banner_0: '上半', banner_1: '下半', char_tease: '爆料', char_preview: '预告', char_pv: 'PV', version_preview: '前瞻' };
-function evShortKey(ev) { return ev.defKey + (ev.sub != null ? '_' + ev.sub : ''); }
+const SHORT = { version_update: '更新', banner_0: '上半', banner_1: '下半', char_tease: '爆料', char_preview: '预告', char_pv: 'PV', version_preview: '前瞻',
+  char_banner_0: '角色一卡池', char_banner_1: '角色二卡池', char_banner_2: '角色三卡池', char_banner_3: '角色四卡池', char_banner_4: '角色五卡池', char_banner_5: '角色六卡池',
+  char_preview_0: '一预告', char_preview_1: '二预告', char_preview_2: '三预告', char_preview_3: '四预告', char_preview_4: '五预告', char_preview_5: '六预告',
+  char_pv_0: '一PV', char_pv_1: '二PV', char_pv_2: '三PV', char_pv_3: '四PV', char_pv_4: '五PV', char_pv_5: '六PV' };
+function evShortKey(ev) { return ev.defKey + (ev.charIndex != null ? '_' + ev.charIndex : (ev.sub != null ? '_' + ev.sub : '')); }
 function fmtCalFocus(dt) { return dt.getFullYear() + '-' + (dt.getMonth() + 1); }
 function shiftCal(d) {
   const parts = (state.calFocus || fmtCalFocus(todayNoon())).split('-');
@@ -702,7 +745,7 @@ function upcomingEvents(limit) {
 function timelineSidebarHTML() {
   let legend = '';
   activeEvents().forEach(def => def.offsets.forEach((o, idx) => {
-    legend += `<div class="lg-item"><span class="lg-dot" style="background:${eventColor(def.key, idx)}"></span>${escapeHtml(def.name + (def.sub ? def.sub[idx] : ''))}<span class="muted">默认 +${o}天</span></div>`;
+    legend += `<div class="lg-item"><span class="lg-dot" style="background:${eventColor(def.key, def.charIndex != null ? def.charIndex : idx)}"></span>${escapeHtml(def.name + (def.sub ? def.sub[idx] : ''))}<span class="muted">默认 +${o}天</span></div>`;
   }));
   let up = '';
   const list = upcomingEvents(12);
@@ -808,9 +851,9 @@ function renderTimeline() {
         const mLeft = xBody(ev.date);
         if (mLeft >= left && mLeft <= left + w) {
           const tip = escapeHtml(ev.title) + ' ' + fmtDate(ev.date) + ' (+' + ev.offset + '天)';
-          marks += `<div class="tl-event-mark" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}" title="${tip}" style="left:${mLeft}px;background:${eventColor(ev.defKey, ev.sub)}"></div>`;
+          marks += `<div class="tl-event-mark" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}" title="${tip}" style="left:${mLeft}px;background:${eventColor(ev.defKey, ev.charIndex ?? ev.sub)}"></div>`;
           if (state.showLabels) {
-            labels += `<div class="tl-evt-tag" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}" title="${tip}" style="left:${mLeft}px;--c:${eventColor(ev.defKey, ev.sub)}">${SHORT[evShortKey(ev)] || escapeHtml(ev.name)}</div>`;
+            labels += `<div class="tl-evt-tag" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}" title="${tip}" style="left:${mLeft}px;--c:${eventColor(ev.defKey, ev.charIndex ?? ev.sub)}">${SHORT[evShortKey(ev)] || escapeHtml(ev.name)}</div>`;
           }
         }
       });
@@ -929,7 +972,7 @@ function renderList() {
     gEvts.forEach(def => {
       def.offsets.forEach((_, idx) => {
         const origKey = def._origKey || def.key;
-        visibleEvKeys.add(origKey + '_' + idx);
+        visibleEvKeys.add(origKey + '_' + (def.charIndex != null ? def.charIndex : idx));
       });
     });
 
@@ -940,7 +983,7 @@ function renderList() {
     const renderEvCells = (v, editMode) => {
       let html = '';
       v.events.forEach(ev => {
-        const ek = ev.defKey + '_' + (ev.sub ?? 0);
+        const ek = ev.defKey + '_' + (ev.charIndex != null ? ev.charIndex : (ev.sub ?? 0));
         if (!visibleEvKeys.has(ek)) return; // 该游戏隐藏了此列
         html += listEvCellHTML(game, v, ev, editMode);
       });
@@ -988,17 +1031,58 @@ function renderList() {
       rows += renderEvCells(v, editMode);
       rows += `</tr>`;
     });
-    let head = '<th>版本</th><th>更新</th>';
-    gEvts.forEach(def => def.offsets.forEach((o, idx) => {
+    // 构建分组表头：角色事件用两行表头（分组行 + 子列名行）
+    const charGroupDefs = []; // { ci, label, cols: [{def, idx}] }
+    const normalCols = [];
+    gEvts.forEach((def) => {
+      def.offsets.forEach((o, idx) => {
+        if (def._isChar) {
+          const ci = def.charIndex ?? 0;
+          let group = charGroupDefs.find(g => g.ci === ci);
+          if (!group) {
+            const CHARS = ['一', '二', '三', '四', '五', '六'];
+            group = { ci, label: '角色' + (CHARS[ci] || (ci + 1)), cols: [] };
+            charGroupDefs.push(group);
+          }
+          group.cols.push({ def, idx });
+        } else {
+          normalCols.push({ def, idx });
+        }
+      });
+    });
+    // 第一行：分组标题（普通列 rowspan=2，角色组 colspan）
+    let headRow1 = '<th rowspan="2">版本</th><th rowspan="2">更新</th>';
+    normalCols.forEach(({ def, idx }) => {
       const origKey = def._origKey || def.key;
-      head += `<th><span class="chip-dot" style="background:${eventColor(origKey, idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(def.name + (def.sub ? def.sub[idx] : ''))}</th>`;
-    }));
-    // 编辑模式切换 + 列设置按钮
+      headRow1 += `<th rowspan="2"><span class="chip-dot" style="background:${eventColor(origKey, idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(def.name + (def.sub ? def.sub[idx] : ''))}</th>`;
+    });
+    charGroupDefs.forEach(group => {
+      const colSpan = group.cols.length;
+      const firstDef = group.cols[0].def;
+      const firstOrigKey = firstDef._origKey || firstDef.key;
+      const groupColor = eventColor(firstOrigKey, group.ci);
+      headRow1 += `<th colspan="${colSpan}" class="char-group-head" style="background:${groupColor}22;color:${groupColor};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${groupColor}44">
+        <span class="chip-dot" style="background:${groupColor};width:6px;height:6px"></span> ${escapeHtml(group.label)}
+      </th>`;
+    });
+    // 第二行：角色子列名
+    let headRow2 = '';
+    charGroupDefs.forEach(group => {
+      group.cols.forEach(({ def, idx }) => {
+        const origKey = def._origKey || def.key;
+        const color = eventColor(origKey, group.ci ?? idx);
+        headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08">${escapeHtml(def.sub ? def.sub[idx] : def.name)}</th>`;
+      });
+    });
+    const head = `<tr>${headRow1}</tr>${headRow2 ? '<tr>' + headRow2 + '</tr>' : ''}`;
+    // 编辑模式切换 + 列设置按钮（仅编辑模式显示）
     const editBtn = `<button class="vc-btn ${editMode ? 'le-btn-on' : ''}" onclick="toggleListEditMode()" style="margin-left:8px;${editMode ? 'background:var(--primary);color:#fff;border-color:var(--primary)' : ''}">${editMode ? '✏️ 修改中' : '✏️ 修改'}</button>`;
-    const colBtn = `<button class="vc-btn" onclick="openColSettings('${game.id}', this)" title="设置显示/隐藏的列">⚙️ 列</button>`;
+    const colBtn = editMode
+      ? `<button class="vc-btn" onclick="openColSettings('${game.id}', this)" title="设置显示/隐藏的列">⚙️ 列</button>`
+      : '';
     html += `<div class="list-game ${editMode ? 'le-mode' : ''}" data-game-id="${game.id}"><div class="list-game-title">${gameIconHTML(game, 'icon')} <b>${escapeHtml(game.name)}</b>` +
       `<span class="muted">基础 ${game.baseCycleDays}天 · 小版本上限 ${game.minorMax} · 显示过去 ${state.listPast || 2} / 未来 ${state.listCount || 8} 个版本</span>` +
-      `${editBtn} ${colBtn}` +
+      `${editBtn}${colBtn}` +
       `<button class="ghost" style="margin-left:auto" onclick="openGameModal('${game.id}')">编辑游戏</button></div>` +
       `<div class="calendar-scroll"><table class="ver-table ${editMode ? 'le-table' : ''}"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
   });
@@ -1083,7 +1167,7 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
     const currentTitle = (game.eventTitles && game.eventTitles[tkey]) || '';
     const isHidden = !!ev.hidden;
     editor.innerHTML = `
-      <div class="le-editor-title"><span class="chip-dot" style="background:${eventColor(ev.defKey, ev.sub ?? 0)};display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle"></span> ${escapeHtml(ev.name)} — 版本 ${escapeHtml(v.label)}</div>
+      <div class="le-editor-title"><span class="chip-dot" style="background:${eventColor(ev.defKey, ev.charIndex ?? ev.sub ?? 0)};display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle"></span> ${escapeHtml(ev.name)} — 版本 ${escapeHtml(v.label)}</div>
       <div class="field">
         <label>事件日期</label>
         <input type="date" id="le-date" value="${fmtDate(ev.date)}" ${isHidden ? 'disabled' : ''}>
@@ -1236,13 +1320,13 @@ window.openColSettings = function(gameId, btnEl) {
   panel.onclick = (e) => e.stopPropagation();
 
   let itemsHtml = '';
-  activeEvents().forEach(def => {
+  gameActiveEvents(game).forEach(def => {
     def.offsets.forEach((off, idx) => {
-      const subKey = def.key + '_' + idx;
+      const subKey = def.key + '_' + (def.charIndex != null ? def.charIndex : idx);
       const subName = def.sub ? def.sub[idx] : '';
       const label = def.name + (subName ? ' · ' + subName : '');
       const isHidden = hiddenSet.has(subKey);
-      const dotColor = eventColor(def.key, idx);
+      const dotColor = eventColor(def.key, def.charIndex != null ? def.charIndex : idx);
       itemsHtml += `
         <label class="col-set-item">
           <input type="checkbox" data-subkey="${subKey}" ${isHidden ? '' : 'checked'} />
@@ -1344,7 +1428,7 @@ function cellHTML(dt, byDate, out) {
   let chips = '';
   evs.slice(0, 4).forEach(it => {
     chips += `<div class="ev-chip" data-game="${it.game.id}" data-tenths="${it.version.tenths}" data-hk="${it.ev.historyKey}" title="${escapeHtml(it.game.name)} ${escapeHtml(it.ev.title)}">` +
-      `${gameIconHTML(it.game, 'chip-ico')}<span class="chip-dot" style="background:${eventColor(it.ev.defKey, it.ev.sub)}"></span>` +
+      `${gameIconHTML(it.game, 'chip-ico')}<span class="chip-dot" style="background:${eventColor(it.ev.defKey, it.ev.charIndex ?? it.ev.sub)}"></span>` +
       `<span class="chip-txt">${escapeHtml(it.ev.title)}</span></div>`;
   });
   if (evs.length > 4) chips += `<div class="muted" style="font-size:10px">+${evs.length - 4} 更多</div>`;
@@ -1378,7 +1462,7 @@ function openVersionModal(gameId, tenths, focusHk) {
     const tkey = evTitleKey(v.tenths, ev.historyKey);
     const custom = game.eventTitles && game.eventTitles[tkey] ? game.eventTitles[tkey] : '';
     html += `<div class="ev-row">
-      <span class="ev-name"><span class="chip-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${eventColor(ev.defKey, ev.sub)}"></span> ${escapeHtml(ev.name)}</span>
+      <span class="ev-name"><span class="chip-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${eventColor(ev.defKey, ev.charIndex ?? ev.sub)}"></span> ${escapeHtml(ev.name)}</span>
       <input type="text" class="m-title" data-tkey="${tkey}" placeholder="自定义名称" value="${escapeAttr(custom)}" style="max-width:120px">
       <input type="date" data-hk="${ev.historyKey}" data-defkey="${ev.defKey}" data-sub="${ev.sub}" value="${fmtDate(ev.date)}">
       <span class="ev-offset">+${off}天</span>
@@ -1479,6 +1563,7 @@ function openGamePanel(gameId, focusTenths) {
       </div>
       <div class="field"><label>版本基础周期（天）</label><input type="number" id="g-cycle" min="7" max="120" value="${game ? game.baseCycleDays : DEFAULT_CYCLE}"></div>
       <div class="field"><label>默认小版本号上限</label><input type="number" id="g-minormax" min="0" max="11" value="${game ? game.minorMax : 9}"></div>
+      <div class="field"><label>每版角色数</label><input type="number" id="g-charcount" min="1" max="6" value="${game ? game.charCount : 2}"><span class="muted" style="margin-left:6px;font-size:11px">每个版本的角色卡池/预告/PV 组数（大部分游戏为 2）</span></div>
       <div class="field"><label>锚点版本号（如 5.0）</label><input type="text" id="g-anchorv" value="${game ? verLabel(game, game.anchorTenths) : '1.0'}"></div>
       <div class="field"><label>锚点版本更新日期</label><input type="date" id="g-anchord" value="${game ? game.anchorDate : fmtDate(todayNoon())}"></div>
     </div>
@@ -1694,6 +1779,7 @@ function saveGamePanel(game) {
   } else { ival = (document.getElementById('g-ic-val') || {}).value || ''; if (!ival) ival = name[0]; }
   const cycle = Math.max(7, Math.min(120, Number(body.querySelector('#g-cycle').value) || DEFAULT_CYCLE));
   const minorMax = Math.max(0, Math.min(11, Number(body.querySelector('#g-minormax').value) || 9));
+  const charCount = Math.max(1, Math.min(6, Number(body.querySelector('#g-charcount').value) || 2));
   const anchorTenths = Math.round(parseFloat(body.querySelector('#g-anchorv').value || '1.0') * 10);
   const anchorDate = body.querySelector('#g-anchord').value;
   const baseOffsets = {};
@@ -1717,14 +1803,15 @@ function saveGamePanel(game) {
   if (game) {
     game.name = name; game.fullName = body.querySelector('#g-full').value.trim();
     game.color = colorInp.value; game.icon = { type: icType.value, value: ival, color: colorInp.value };
-    game.baseCycleDays = cycle; game.minorMax = minorMax; game.anchorTenths = anchorTenths; game.anchorDate = anchorDate;
+    game.baseCycleDays = cycle; game.minorMax = minorMax; game.charCount = charCount;
+    game.anchorTenths = anchorTenths; game.anchorDate = anchorDate;
     game.baseOffsets = baseOffsets; game.minorMaxBreakpoints = minorMaxBreakpoints;
   } else {
     const ng = {
       id: 'g_' + Math.random().toString(36).slice(2, 9), name,
       fullName: body.querySelector('#g-full').value.trim(), color: colorInp.value,
       icon: { type: icType.value, value: ival, color: colorInp.value },
-      baseCycleDays: cycle, minorMax, anchorTenths, anchorDate,
+      baseCycleDays: cycle, minorMax, charCount, anchorTenths, anchorDate,
       eventHistory: {}, baseOffsets, eventTitles: {}, versionDurations: {},
       verNotes: {}, verEventOffsets: {}, verUpdateDates: {}, hiddenEventKeys: [], verHiddenEvents: {},
       minorMaxBreakpoints
