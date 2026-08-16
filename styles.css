@@ -252,6 +252,33 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 .set-ev-row.dragging { opacity: .4; }
 .set-ev-row.drag-over { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
 
+/* ---------- 设置：角色事件分组（两级排序） ---------- */
+#set-char-groups { max-height: 360px; overflow-y: auto; }
+.set-ev-group { border-radius: 8px; margin-bottom: 8px; border: 1px solid var(--border); background: var(--panel); }
+.set-ev-group-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: 8px; cursor: grab; user-select: none;
+}
+.set-ev-group-header:hover { background: var(--panel-2); }
+.set-ev-group-header.dragging { opacity: .4; }
+.set-ev-group-header.drag-over { border: 1px dashed var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+.set-ev-group-title { font-weight: 600; }
+.set-ev-collapse { cursor: pointer; font-size: 14px; width: 16px; text-align: center; flex-shrink: 0; }
+.set-ev-grab { color: var(--text-soft); font-size: 14px; flex-shrink: 0; }
+.set-ev-group-body { padding: 2px 6px 8px 22px; }
+.set-ev-group-body.hidden { display: none; }
+.set-ev-sub {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; margin: 5px 0; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--panel-2); cursor: grab;
+}
+.set-ev-sub:hover { background: var(--panel); border-color: var(--primary-soft); }
+.set-ev-sub.dragging { opacity: .4; }
+.set-ev-sub.drag-over { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+.set-ev-sub-name { font-size: 13px; font-weight: 600; }
+.set-ev-sub-off { font-size: 12px; }
+
+
 /* 筛选栏上的编辑入口 */
 .chip-edit { border: none; background: transparent; color: var(--text-soft); cursor: pointer; font-size: 13px; padding: 0 2px 0 6px; line-height: 1; }
 .chip-edit:hover { color: var(--primary); }

@@ -26,17 +26,35 @@ const EVENT_DEFS = EVENT_DEFS_TEMPLATE;
  */
 function generateCharEvents(charCount) {
   const n = Math.max(1, Math.min(6, charCount || 2)); // 限制 1~6 个角色
-  const evts = [];
   const CHARS = ['一', '二', '三', '四', '五', '六'];
   // 基准偏移：角色1卡池=卡池上半(0)，角色2卡池=+1天，以此类推
   const baseOffsets = [0, 1, 2, 3, 4, 5];
-  for (let i = 0; i < n; i++) {
+  // 子项定义：卡池 / 预告 / PV（相对角色卡池日的偏移）
+  const SUB_DEFS = {
+    char_banner:   { sub: ['卡池'], off: 0 },
+    char_preview: { sub: ['预告'], off: -2 },
+    char_pv:      { sub: ['PV'], off: -3 },
+  };
+  // 子项顺序（同一角色内）：取自设置面板排序，默认 卡池→预告→PV
+  const subOrder = (state && state.charSubOrder && state.charSubOrder.length) ? state.charSubOrder : ['char_banner', 'char_preview', 'char_pv'];
+  // 角色组顺序：取自设置面板排序，默认 角色一→角色二→…
+  const rawGroup = (state && state.charGroupOrder && state.charGroupOrder.length) ? state.charGroupOrder : [0, 1, 2, 3, 4, 5];
+  const groupOrder = rawGroup.filter(i => i >= 0 && i < n);
+  for (let i = 0; i < n; i++) if (!groupOrder.includes(i)) groupOrder.push(i); // 补全缺失角色
+  const evts = [];
+  groupOrder.forEach(i => {
     const base = baseOffsets[i] || 0;
     const label = CHARS[i] || String(i + 1);
-    evts.push({ key: 'char_banner', name: '角色' + label, offsets: [base], sub: ['卡池'], charIndex: i, _isChar: true });
-    evts.push({ key: 'char_preview', name: '角色' + label, offsets: [base - 2], sub: ['预告'], charIndex: i, _isChar: true, _charParent: 'char_banner_' + i });
-    evts.push({ key: 'char_pv', name: '角色' + label, offsets: [base - 3], sub: ['PV'], charIndex: i, _isChar: true, _charParent: 'char_banner_' + i });
-  }
+    subOrder.forEach(key => {
+      const sd = SUB_DEFS[key]; if (!sd) return;
+      const isBanner = key === 'char_banner';
+      evts.push({
+        key, name: '角色' + label, offsets: [base + sd.off], sub: sd.sub,
+        charIndex: i, _isChar: true,
+        _charParent: isBanner ? null : 'char_banner_' + i
+      });
+    });
+  });
   return evts;
 }
 
@@ -504,6 +522,13 @@ async function init() {
   if (!state.customEvents || !Array.isArray(state.customEvents)) {
     state.customEvents = JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE));
   }
+  // 角色事件子项顺序（卡池/预告/PV）与角色组顺序（角色一/二/…），用于设置面板两级排序
+  if (!state.charSubOrder || !Array.isArray(state.charSubOrder) || !state.charSubOrder.length) {
+    state.charSubOrder = ['char_banner', 'char_preview', 'char_pv'];
+  }
+  if (!state.charGroupOrder || !Array.isArray(state.charGroupOrder)) {
+    state.charGroupOrder = [0, 1, 2, 3, 4, 5];
+  }
   // 清除旧静态 char_preview/char_pv（已改为按 charCount 动态生成，避免重复列）
   // 同时将旧 banner 的双 offset（上半+下半）截断为单 offset（仅上半），下半已被角色卡池替代
   let changed = false;
@@ -758,6 +783,34 @@ function reorderEvents(fromKey, toKey) {
   curSettingsTab = 's-events';
   openSettings();
   toast('已调整事件顺序');
+}
+
+/** 拖拽重排角色组顺序（角色一/角色二/…，设置面板两级排序用） */
+function reorderCharGroups(fromCi, toCi) {
+  if (fromCi == null || fromCi === toCi) return;
+  const arr = state.charGroupOrder;
+  if (!arr) return;
+  const from = arr.indexOf(fromCi), to = arr.indexOf(toCi);
+  if (from < 0 || to < 0) return;
+  arr.splice(from, 1); arr.splice(to, 0, fromCi);
+  saveAndRender();
+  curSettingsTab = 's-events';
+  openSettings();
+  toast('已调整角色顺序');
+}
+
+/** 拖拽重排角色内子项顺序（卡池/预告/PV，仅组内） */
+function reorderCharSubs(fromKey, toKey) {
+  if (!fromKey || !toKey || fromKey === toKey) return;
+  const arr = state.charSubOrder;
+  if (!arr) return;
+  const from = arr.indexOf(fromKey), to = arr.indexOf(toKey);
+  if (from < 0 || to < 0) return;
+  arr.splice(from, 1); arr.splice(to, 0, fromKey);
+  saveAndRender();
+  curSettingsTab = 's-events';
+  openSettings();
+  toast('已调整角色内子项顺序');
 }
 
 /* ----------------------------- 视图统一设置条 + 时间轴侧栏 ----------------------------- */
@@ -2163,6 +2216,45 @@ function openSettings() {
     </div>`;
   });
 
+  // 角色事件分组（角色一/角色二/…，组内卡池/预告/PV 可排序）
+  const charCount = (state.games && state.games[0] && state.games[0].charCount) || 2;
+  let charGroupHtml = '';
+  if (charCount > 0) {
+    const gOrder = (state.charGroupOrder || []).filter(i => i >= 0 && i < charCount);
+    for (let i = 0; i < charCount; i++) if (!gOrder.includes(i)) gOrder.push(i);
+    const sOrder = (state.charSubOrder && state.charSubOrder.length) ? state.charSubOrder : ['char_banner', 'char_preview', 'char_pv'];
+    const CHARS = ['一', '二', '三', '四', '五', '六'];
+    const SUB_LABEL = { char_banner: '卡池', char_preview: '预告', char_pv: 'PV' };
+    const SUB_OFF = { char_banner: 0, char_preview: -2, char_pv: -3 };
+    gOrder.forEach(ci => {
+      const label = CHARS[ci] || String(ci + 1);
+      let subRows = '';
+      sOrder.forEach(key => {
+        if (key !== 'char_banner' && key !== 'char_preview' && key !== 'char_pv') return;
+        const color = eventColor(key, ci);
+        const off = SUB_OFF[key];
+        const offTxt = off === 0 ? '与卡池同天' : (off < 0 ? '提前 ' + (-off) + ' 天' : '延后 ' + off + ' 天');
+        subRows += `<div class="set-ev-sub" draggable="true" data-ci="${ci}" data-key="${key}">
+          <span class="set-ev-grab">⠿</span>
+          <span class="set-ev-dot" style="background:${color}"></span>
+          <span class="set-ev-sub-name">${SUB_LABEL[key]}</span>
+          <span class="muted set-ev-sub-off">偏移 ${offTxt}</span>
+        </div>`;
+      });
+      const headColor = eventColor('char_banner', ci);
+      charGroupHtml += `<div class="set-ev-group" data-ci="${ci}">
+        <div class="set-ev-group-header" draggable="true" data-ci="${ci}">
+          <span class="set-ev-grab">⠿</span>
+          <span class="set-ev-collapse" data-ci="${ci}" title="展开/收起">▾</span>
+          <span class="set-ev-dot" style="background:${headColor}"></span>
+          <span class="set-ev-group-title">角色${label}</span>
+          <span class="muted">卡池 / 预告 / PV（可组内排序）</span>
+        </div>
+        <div class="set-ev-group-body" data-ci="${ci}">${subRows}</div>
+      </div>`;
+    });
+  }
+
   body.innerHTML = `
     <div class="modal-tabs">
       <button type="button" class="mtab active" data-tab="s-basic">基础设置</button>
@@ -2201,13 +2293,17 @@ function openSettings() {
         </div>
       </div>
     </div>
-    <div id="tab-s-events" class="hidden">
-      <div class="field"><label>版本周期内的事件类型（可增删、隐藏/显示、改名称和偏移天数）</label>
-        <div class="muted" style="margin-bottom:8px">隐藏后该事件不会在时间轴/月历/列表中显示。偏移天数为相对「版本更新日」的天数，多个值用逗号分隔。角色相关事件（卡池/预告/PV）由「每版角色数」自动生成，无需在此手动添加。修改后所有游戏立即生效。</div>
-        <div id="set-ev-list">${evRows}</div>
-        <button type="button" class="ghost" id="set-ev-add" style="margin-top:8px">＋ 添加新事件</button>
+      <div id="tab-s-events" class="hidden">
+        <div class="field"><label>① 通用事件类型（可增删、隐藏/显示、改名称和偏移天数，可拖拽排序）</label>
+          <div class="muted" style="margin-bottom:8px">隐藏后该事件不会在时间轴/月历/列表中显示。偏移天数为相对「版本更新日」的天数，多个值用逗号分隔。修改后所有游戏立即生效。</div>
+          <div id="set-ev-list">${evRows}</div>
+          <button type="button" class="ghost" id="set-ev-add" style="margin-top:8px">＋ 添加新事件</button>
+        </div>
+        <div class="field"><label>② 角色事件（按「每版角色数」自动生成；角色之间可拖拽排序，组内卡池/预告/PV 仅可在本角色内排序）</label>
+          <div class="muted" style="margin-bottom:8px">这部分无需手动添加。拖动「角色一/角色二…」标题可调整角色先后；展开后拖动「卡池/预告/PV」可调整该角色内三项的先后顺序，且不会影响其他角色。</div>
+          <div id="set-char-groups">${charGroupHtml}</div>
+        </div>
       </div>
-    </div>
   `;
 
   /* ---- Tab 切换 ---- */
@@ -2334,6 +2430,67 @@ function openSettings() {
       row.classList.remove('drag-over');
       reorderEvents(e.dataTransfer.getData('text/plain'), row.dataset.key);
     });
+  });
+
+  // 角色组标题拖拽排序（角色一/角色二/… 之间）
+  body.querySelectorAll('.set-ev-group-header').forEach(hdr => {
+    hdr.addEventListener('dragstart', (e) => {
+      hdr.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', 'chargroup|' + hdr.dataset.ci);
+    });
+    hdr.addEventListener('dragend', () => {
+      hdr.classList.remove('dragging');
+      body.querySelectorAll('.set-ev-group-header').forEach(h => h.classList.remove('drag-over'));
+    });
+    hdr.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; hdr.classList.add('drag-over'); });
+    hdr.addEventListener('dragleave', () => hdr.classList.remove('drag-over'));
+    hdr.addEventListener('drop', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      hdr.classList.remove('drag-over');
+      const data = e.dataTransfer.getData('text/plain');
+      if (data.indexOf('chargroup|') !== 0) return; // 只允许角色组之间互拖
+      reorderCharGroups(Number(data.split('|')[1]), Number(hdr.dataset.ci));
+    });
+  });
+  // 角色内子项拖拽排序（卡池/预告/PV，仅同组内）
+  body.querySelectorAll('.set-ev-sub').forEach(sub => {
+    sub.addEventListener('dragstart', (e) => {
+      sub.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', 'charsub|' + sub.dataset.ci + '|' + sub.dataset.key);
+    });
+    sub.addEventListener('dragend', () => {
+      sub.classList.remove('dragging');
+      body.querySelectorAll('.set-ev-sub').forEach(s => s.classList.remove('drag-over'));
+    });
+    sub.addEventListener('dragover', (e) => {
+      const data = e.dataTransfer.getData('text/plain');
+      if (data.indexOf('charsub|') === 0 && data.split('|')[1] === sub.dataset.ci) {
+        e.preventDefault(); e.dataTransfer.dropEffect = 'move'; sub.classList.add('drag-over');
+      }
+    });
+    sub.addEventListener('dragleave', () => sub.classList.remove('drag-over'));
+    sub.addEventListener('drop', (e) => {
+      const data = e.dataTransfer.getData('text/plain');
+      sub.classList.remove('drag-over');
+      if (data.indexOf('charsub|') !== 0) return;
+      const parts = data.split('|');
+      if (parts[1] !== sub.dataset.ci) return; // 不允许跨角色组拖拽
+      e.preventDefault(); e.stopPropagation();
+      reorderCharSubs(parts[2], sub.dataset.key);
+    });
+  });
+  // 角色组展开/收起
+  body.querySelectorAll('.set-ev-collapse').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const ci = btn.dataset.ci;
+      const gbody = document.querySelector('.set-ev-group-body[data-ci="' + ci + '"]');
+      if (!gbody) return;
+      const hidden = gbody.classList.toggle('hidden');
+      btn.textContent = hidden ? '▸' : '▾';
+    };
   });
 
   // 添加新事件
