@@ -43,9 +43,7 @@ function generateCharEvents(charCount) {
 /** 获取当前生效的事件定义列表（过滤掉 hidden 的，含动态生成的角色事件） */
 function activeEvents() {
   // 渲染源头过滤已废弃的旧 key：旧 char_pv/char_preview（已被角色分组替代）、banner 的下半（已被角色二卡池替代）
-  const raw = state.customEvents || EVENT_DEFS_TEMPLATE;
-  console.log('[activeEvents] customEvents keys:', raw.map(e => e.key + '(' + (e.offsets||[]).length + ')'));
-  const base = raw.filter(e =>
+  const base = (state.customEvents || EVENT_DEFS_TEMPLATE).filter(e =>
     e.hidden !== true &&
     e.key !== 'char_pv' && e.key !== 'char_preview' &&
     !(e.key === 'banner' && Array.isArray(e.offsets) && e.offsets.length > 1)
