@@ -41,13 +41,14 @@ function generateCharEvents(charCount) {
   const groupOrder = rawGroup.filter(i => i >= 0 && i < n);
   for (let i = 0; i < n; i++) if (!groupOrder.includes(i)) groupOrder.push(i); // 补全缺失角色
   const evts = [];
-  // 新角色爆料：按角色拆分为多个子类（数量=角色数），每个子类直接显示对应角色的备注名
-  const TEASE_OFF = 33; // 相对版本更新日的偏移（版本末期预告本版本角色）
+  // 新角色爆料：按角色拆分为多个子类（数量=角色数），独立成一块（不混入角色分组）
+  // 绑定到「当前运行版本 + teaseVersionOffset」的目标版本角色备注名（见 renderList）
+  const TEASE_OFF = 33; // 相对版本更新日的偏移（版本末期预告），仅用于计算事件日期（列表不显示）
   groupOrder.forEach(i => {
     const label = CHARS[i] || String(i + 1);
     evts.push({
       key: 'char_tease', name: '新角色爆料·角色' + label, sub: undefined,
-      offsets: [TEASE_OFF], charIndex: i, _isChar: true, _tease: true
+      offsets: [TEASE_OFF], charIndex: i, _tease: true
     });
   });
   groupOrder.forEach(i => {
@@ -348,6 +349,7 @@ function applyRemoteState(remote) {
   });
   if (!state.charSubOrder || !state.charSubOrder.length) state.charSubOrder = ['char_banner', 'char_preview', 'char_pv'];
   if (!state.charGroupOrder || !state.charGroupOrder.length) state.charGroupOrder = [0, 1, 2, 3, 4, 5];
+  if (typeof state.teaseVersionOffset !== 'number' || state.teaseVersionOffset < 0) state.teaseVersionOffset = 1;
   if (typeof state.dayW !== 'number') state.dayW = 4;
   if (typeof state.listCount !== 'number') state.listCount = 8;
   if (typeof state.listPast !== 'number') state.listPast = 2;
@@ -583,6 +585,10 @@ async function init() {
   }
   if (!state.charGroupOrder || !Array.isArray(state.charGroupOrder)) {
     state.charGroupOrder = [0, 1, 2, 3, 4, 5];
+  }
+  // 新角色爆料绑定的版本偏移：0=当前版本，1=下1个版本，2=下2个版本…（默认提前1个版本放出）
+  if (typeof state.teaseVersionOffset !== 'number' || state.teaseVersionOffset < 0) {
+    state.teaseVersionOffset = 1;
   }
   // 清除旧静态 char_preview/char_pv/banner（已改为按 charCount 动态生成或被角色一卡池替代，避免重复列）
   let changed = false;
@@ -1100,6 +1106,23 @@ function listEvCellHTML(game, v, ev, editMode) {
     `<span class="le-edit-hint">✏️</span></td>`;
 }
 
+/** 新角色爆料列单元格：仅显示绑定目标版本的角色备注名（不显示日期） */
+function teaseCellHTML(def, remark, editMode) {
+  const ci = def.charIndex != null ? def.charIndex : 0;
+  const color = eventColor('char_tease', ci);
+  const hidden = !!def._hidden;
+  if (hidden) {
+    return editMode
+      ? `<td class="vt-empty" title="新角色爆料·角色${ci + 1} 已隐藏">—</td>`
+      : `<td class="vt-empty" title="新角色爆料·角色${ci + 1} 已隐藏">—</td>`;
+  }
+  const tag = remark
+    ? `<div class="ev-char-tag" style="background:${color}18;color:${color};border:1px solid ${color}44">${escapeHtml(remark)}</div>`
+    : `<span class="muted">—</span>`;
+  // 爆料列绑定由全局 teaseVersionOffset 控制，单元格本身不可单独编辑
+  return `<td title="新角色爆料·角色${ci + 1}：显示未来版本对应角色备注名">${tag}</td>`;
+}
+
 function renderList() {
   const host = document.getElementById('view-list');
   let html = '';
@@ -1118,6 +1141,12 @@ function renderList() {
     const currentVer = pastN.length > 0 ? pastN[pastN.length - 1] : null;  // 最近的一个 = 当前运行中版本
     const olderVersions = pastN.slice(0, -1);  // 排除当前版本的更早历史
     const futureN = future.slice(0, state.listCount || 8);
+    // 新角色爆料绑定的目标版本 = 当前运行版本 + teaseVersionOffset（默认下1版本）
+    // 偏移超出未来版本范围时回退到当前版本
+    let targetVer = currentVer;
+    const off = state.teaseVersionOffset || 0;
+    if (off > 0 && futureN.length >= off) targetVer = futureN[off - 1];
+    else if (off > 0) targetVer = currentVer; // 未来版本不足，回退
 
     // 该游戏可见的事件列（全局 + 按游戏隐藏过滤后）
     const gEvts = gameActiveEvents(game);
@@ -1134,10 +1163,13 @@ function renderList() {
     // 构建分组表头数据：角色事件用两行表头（分组行 + 子列名行）
     // ⚠️ 必须在 renderEvCells 和 rows 渲染之前构建，因为两者都依赖这些数组
     const charGroupDefs = []; // { ci, label, cols: [{def, idx}] }
+    const teaseGroup = { ci: -1, label: '新角色爆料', cols: [] }; // 独立分组块（不混入角色分组）
     const normalCols = [];
     gEvts.forEach((def) => {
       def.offsets.forEach((o, idx) => {
-        if (def._isChar) {
+        if (def._tease) {
+          teaseGroup.cols.push({ def, idx });
+        } else if (def._isChar) {
           const ci = def.charIndex ?? 0;
           let group = charGroupDefs.find(g => g.ci === ci);
           if (!group) {
@@ -1151,16 +1183,17 @@ function renderList() {
         }
       });
     });
+    const teaseGroupDefs = teaseGroup.cols.length ? [teaseGroup] : [];
 
     let rows = '';
 
-    // 辅助函数：按与表头完全一致的顺序（normalCols → charGroupDefs 分组）渲染可见事件单元格
+    // 辅助函数：按与表头完全一致的顺序（normalCols → teaseGroupDefs → charGroupDefs）渲染可见事件单元格
     const renderEvCells = (v, editMode) => {
       let html = '';
       // 预建 historyKey → 事件 映射，供按列顺序查找
       const evMap = {};
       v.events.forEach(ev => { evMap[ev.historyKey] = ev; });
-      // ⚠️ 必须与表头遍历顺序完全一致：先 normalCols，再按 charGroupDefs 分组迭代
+      // ⚠️ 必须与表头遍历顺序完全一致：先 normalCols，再 teaseGroupDefs，再 charGroupDefs
       //    否则第 N 列的表头和第 N 个数据单元格对应不上
       // historyKey 拼接规则同 genGameVersions 第685行
       const lookupEv = (def, idx) => {
@@ -1174,7 +1207,16 @@ function renderList() {
         const ev = lookupEv(def, idx);
         if (ev) html += listEvCellHTML(game, v, ev, editMode);
       });
-      // 2. 角色分组列（每个角色的爆料/卡池/预告/PV 按组内顺序）
+      // 2. 新角色爆料列：显示 targetVer（当前版本+偏移）对应角色索引的备注名，仅备注名
+      teaseGroupDefs.forEach(group => {
+        group.cols.forEach(({ def, idx }) => {
+          const ci = def.charIndex != null ? def.charIndex : idx;
+          const remark = (targetVer && targetVer.tenths != null && game.charNames)
+            ? (game.charNames[String(targetVer.tenths) + '|' + ci] || '') : '';
+          html += teaseCellHTML(def, remark, editMode);
+        });
+      });
+      // 3. 角色分组列（每个角色的卡池/预告/PV 按组内顺序）
       charGroupDefs.forEach(group => {
         group.cols.forEach(({ def, idx }) => {
           const ev = lookupEv(def, idx);
@@ -1234,6 +1276,15 @@ function renderList() {
       const hid = isDefHidden(def);
       headRow1 += `<th rowspan="2" style="${hid ? 'opacity:.35;text-decoration:line-through' : ''}"><span class="chip-dot" style="background:${eventColor(origKey, idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(def.name + (def.sub ? def.sub[idx] : ''))}</th>`;
     });
+    // 新角色爆料独立块（紧跟普通列之后、角色分组之前，与数据单元格顺序一致）
+    teaseGroupDefs.forEach(group => {
+      const colSpan = group.cols.length;
+      const groupColor = eventColor('char_tease', 0);
+      const allHidden = group.cols.every(c => isDefHidden(c.def));
+      headRow1 += `<th colspan="${colSpan}" class="char-group-head" style="background:${groupColor}22;color:${groupColor};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${groupColor}44${allHidden ? ';opacity:.35;text-decoration:line-through' : ''}">
+        <span class="chip-dot" style="background:${groupColor};width:6px;height:6px"></span> ${escapeHtml(group.label)}
+      </th>`;
+    });
     charGroupDefs.forEach(group => {
       const colSpan = group.cols.length;
       const firstDef = group.cols[0].def;
@@ -1246,6 +1297,15 @@ function renderList() {
     });
     // 第二行：角色子列名
     let headRow2 = '';
+    teaseGroupDefs.forEach(group => {
+      group.cols.forEach(({ def, idx }) => {
+        const color = eventColor('char_tease', def.charIndex ?? 0);
+        const hid = isDefHidden(def);
+        // 爆料子列名：直接用 def.name（如"新角色爆料·角色一"），固定不绑定 charNames
+        const cellText = def.name;
+        headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08${hid ? ';opacity:.35;text-decoration:line-through' : ''}">${escapeHtml(cellText)}</th>`;
+      });
+    });
     charGroupDefs.forEach(group => {
       group.cols.forEach(({ def, idx }) => {
         const origKey = def._origKey || def.key;
@@ -2328,7 +2388,7 @@ function openSettings() {
     });
   }
 
-  // 新角色爆料分组（按角色拆分，数量=每版角色数；每个子项直接显示对应角色卡池的备注名）
+  // 新角色爆料分组（独立成块；数量=每版角色数；绑定到当前版本+偏移的目标版本角色备注名）
   let teaseHtml = '';
   if (charCount > 0) {
     const tOrder = (state.charGroupOrder || []).filter(i => i >= 0 && i < charCount);
@@ -2341,15 +2401,19 @@ function openSettings() {
         <span class="set-ev-grab">⠿</span>
         <span class="set-ev-dot" style="background:${color}"></span>
         <span class="set-ev-sub-name">角色${label}爆料</span>
-        <span class="muted set-ev-sub-off">直接显示「角色${label}卡池」的备注名</span>
+        <span class="muted set-ev-sub-off">显示目标版本「角色${label}」的备注名</span>
       </div>`;
     });
     const tHeadColor = eventColor('char_tease', 0);
+    const offOpts = [0, 1, 2, 3, 4, 5].map(o => {
+      const txt = o === 0 ? '当前版本' : ('下 ' + o + ' 个版本');
+      return `<option value="${o}" ${state.teaseVersionOffset === o ? 'selected' : ''}>${txt}</option>`;
+    }).join('');
     teaseHtml = `<div class="set-ev-group" data-tease="1">
       <div class="set-ev-group-header" data-tease="1" style="cursor:default">
         <span class="set-ev-dot" style="background:${tHeadColor}"></span>
         <span class="set-ev-group-title">新角色爆料</span>
-        <span class="muted">按角色拆分（数量=每版角色数）；拖拽子项可调整顺序，与角色分组一致</span>
+        <label class="muted" style="margin-left:8px">绑定：<select id="s-tease-off" onmousedown="event.stopPropagation()" style="font-size:11px;padding:1px 4px">${offOpts}</select></label>
       </div>
       <div class="set-ev-group-body" data-tease="1">${tSubRows}</div>
     </div>`;
@@ -2403,8 +2467,8 @@ function openSettings() {
           <div class="muted" style="margin-bottom:8px">这部分无需手动添加。拖动「角色一/角色二…」标题可调整角色先后；展开后拖动「卡池/预告/PV」可调整该角色内三项的先后顺序，且不会影响其他角色。</div>
           <div id="set-char-groups">${charGroupHtml}</div>
         </div>
-        <div class="field"><label>③ 新角色爆料（按角色拆分；数量=每版角色数，每个子类直接显示对应角色卡池的备注名）</label>
-          <div class="muted" style="margin-bottom:8px">「新角色爆料」不再是一个整体列，而是按角色拆成多个子类（角色一爆料/角色二爆料…）。每个子类显示的始终是「角色N卡池」里填写的备注名，无需单独设置。拖拽子类可调整这些爆料列的先后顺序（与角色分组顺序一致）。想要 1 个或更多子类，改上方「每版角色数」即可。</div>
+        <div class="field"><label>③ 新角色爆料（独立分组；数量=每版角色数，绑定未来版本的角色备注名）</label>
+          <div class="muted" style="margin-bottom:8px">「新角色爆料」从角色分组里独立成一块，按角色拆成多个子类（角色一爆料/角色二爆料…）。它们绑定的是「当前版本 + 偏移」那个<b>未来版本</b>的角色备注名（角色爆料通常提前放出），所以填了未来版本的角色备注名后这里会自动显示。在上方分组标题旁可设置绑定的版本偏移（默认下 1 个版本）。拖拽子类可调整爆料列的先后顺序（与角色分组顺序一致）。想要 1 个或更多子类，改上方「每版角色数」即可。</div>
           <div id="set-tease-group">${teaseHtml}</div>
         </div>
       </div>
@@ -2459,6 +2523,9 @@ function openSettings() {
     const fwd = Math.max(30, Number(body.querySelector('#s-fwd').value) || 400);
     state.viewStart = fmtDate(addDays(todayNoon(), -back));
     state.viewEnd = fmtDate(addDays(todayNoon(), fwd));
+    // 新角色爆料绑定的版本偏移
+    const offEl = body.querySelector('#s-tease-off');
+    if (offEl) state.teaseVersionOffset = Math.max(0, Math.min(5, Number(offEl.value) || 0));
     // 事件管理
     saveEventSettings(body);
     saveAndRender(); hideModal(); toast('设置已保存');
