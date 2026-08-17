@@ -1127,9 +1127,31 @@ function renderList() {
       headTexts.push(def.name + (def.sub ? def.sub[idx] : '') + ' [key=' + def.key + (def.charIndex!=null?('_'+def.charIndex):'') + ']');
     }));
     console.log('[GVS] 🔍 列表视图实际表头文字 (game=' + (game&&game.id) + '): ' + headTexts.join(' | '));
-    // 构建可见事件 key 集合，用于过滤每行的事件单元格（cols 计算仍需要）
+    // 构建可见事件 key 集合（cols 计算仍需要）
 
     const cols = 2 + gEvts.reduce((a, d) => a + d.offsets.length, 0);
+
+    // 构建分组表头数据：角色事件用两行表头（分组行 + 子列名行）
+    // ⚠️ 必须在 renderEvCells 和 rows 渲染之前构建，因为两者都依赖这些数组
+    const charGroupDefs = []; // { ci, label, cols: [{def, idx}] }
+    const normalCols = [];
+    gEvts.forEach((def) => {
+      def.offsets.forEach((o, idx) => {
+        if (def._isChar) {
+          const ci = def.charIndex ?? 0;
+          let group = charGroupDefs.find(g => g.ci === ci);
+          if (!group) {
+            const CHARS = ['一', '二', '三', '四', '五', '六'];
+            group = { ci, label: '角色' + (CHARS[ci] || (ci + 1)), cols: [] };
+            charGroupDefs.push(group);
+          }
+          group.cols.push({ def, idx });
+        } else {
+          normalCols.push({ def, idx });
+        }
+      });
+    });
+
     let rows = '';
 
     // 辅助函数：按与表头完全一致的顺序（normalCols → charGroupDefs 分组）渲染可见事件单元格
@@ -1202,25 +1224,6 @@ function renderList() {
       rows += `<tr>${verTd}${updateTd}`;
       rows += renderEvCells(v, editMode);
       rows += `</tr>`;
-    });
-    // 构建分组表头：角色事件用两行表头（分组行 + 子列名行）
-    const charGroupDefs = []; // { ci, label, cols: [{def, idx}] }
-    const normalCols = [];
-    gEvts.forEach((def) => {
-      def.offsets.forEach((o, idx) => {
-        if (def._isChar) {
-          const ci = def.charIndex ?? 0;
-          let group = charGroupDefs.find(g => g.ci === ci);
-          if (!group) {
-            const CHARS = ['一', '二', '三', '四', '五', '六'];
-            group = { ci, label: '角色' + (CHARS[ci] || (ci + 1)), cols: [] };
-            charGroupDefs.push(group);
-          }
-          group.cols.push({ def, idx });
-        } else {
-          normalCols.push({ def, idx });
-        }
-      });
     });
     // 第一行：分组标题（普通列 rowspan=2，角色组 colspan）
     // 辅助：判断事件定义是否被隐藏
