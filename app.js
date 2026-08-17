@@ -785,8 +785,15 @@ function resolveInherited(game, versions) {
   }));
   Object.values(conf).forEach(arr => arr.sort((a, b) => a.ms - b.ms));
 
+  // 诊断：打印找到的已确认数据
+  const confKeys = Object.keys(conf);
+  const stats = { confirmed: 0, inherited: 0, base: 0, default: 0 };
+  if (confKeys.length) {
+    console.log(`[GVS] 🔍 ${game.name} 偏移继承：找到 ${confKeys.length} 个事件有确认值`, confKeys.map(k => `${k}(${conf[k].length}个)`).join(', '), 'onlyConfirmed=', onlyConfirmed);
+  }
+
   versions.forEach(v => v.events.forEach(ev => {
-    if (offsetIsConfirmed(game, ev.historyKey, v.tenths)) { ev.source = 'confirmed'; return; }
+    if (offsetIsConfirmed(game, ev.historyKey, v.tenths)) { ev.source = 'confirmed'; stats.confirmed++; return; }
     const arr = conf[ev.historyKey];
     if (arr && arr.length && !onlyConfirmed) {
       // 找时间上最近的已确认版本
@@ -795,12 +802,15 @@ function resolveInherited(game, versions) {
       ev.offset = best.off;
       ev.date = addDays(v.updateDate, best.off);
       ev.source = 'inherited';
+      stats.inherited++;
       return;
     }
     const bo = game.baseOffsets && game.baseOffsets[ev.historyKey];
-    if (typeof bo === 'number') { ev.source = 'base'; return; }
+    if (typeof bo === 'number') { ev.source = 'base'; stats.base++; return; }
     ev.source = 'default';
+    stats.default++;
   }));
+  console.log(`[GVS] 📊 ${game.name} 偏移来源统计：确认${stats.confirmed} 沿用${stats.inherited} 基准${stats.base} 默认${stats.default}`);
 }
 
 function collectEvents() {
@@ -2744,11 +2754,12 @@ function snapshotListCells() {
   return snap;
 }
 
-/** 对比快照与当前 DOM，高亮变化的格子，返回变化数量 */
+/** 对比快照与当前 DOM，高亮变化的格子，返回 { total, detail } */
 function highlightChangedCells(oldSnap) {
   const host = document.getElementById('view-list');
-  if (!host || !oldSnap) return 0;
+  if (!host || !oldSnap) return { total: 0, detail: '' };
   let changed = 0;
+  const detail = { d2i: 0, i2d: 0, d2c: 0, date: 0, other: 0 }; // default→inherited, inherited→default, etc.
   host.querySelectorAll('.ver-table tbody tr').forEach(tr => {
     const gameTd = tr.querySelector('.vt-ver');
     if (!gameTd) return;
@@ -2762,20 +2773,34 @@ function highlightChangedCells(oldSnap) {
       if (!dateEl) return;
       const key = `${gameId}|${tenths}|${ci}`;
       const old = oldSnap[key];
-      if (!old) { changed++; td.classList.add('le-cell-new'); return; }
       const newText = dateEl.textContent.trim();
       const newDotCls = dotEl ? Array.from(dotEl.classList).filter(c => c.startsWith('off-dot-')).join(' ') : '';
-      if (old.text !== newText || old.dotCls !== newDotCls) {
+      if (!old) { changed++; detail.other++; td.classList.add('le-cell-new'); return; }
+      if (old.text !== newText && old.dotCls === newDotCls) { changed++; detail.date++; td.classList.add('le-cell-changed'); return; }
+      if (old.text === newText && old.dotCls !== newDotCls) {
         changed++;
         td.classList.add('le-cell-changed');
+        // 追踪来源变化方向
+        if (old.dotCls.includes('off-dot-default') && newDotCls.includes('off-dot-inherited')) detail.d2i++;
+        else if (old.dotCls.includes('off-dot-inherited') && newDotCls.includes('off-dot-default')) detail.i2d++;
+        else if (old.dotCls.includes('off-dot-default') && newDotCls.includes('off-dot-confirmed')) detail.d2c++;
+        else detail.other++;
+        return;
       }
+      if (old.text !== newText && old.dotCls !== newDotCls) { changed++; detail.date++; td.classList.add('le-cell-changed'); }
     });
   });
   // 1.5秒后移除高亮类
   if (changed > 0) setTimeout(() => {
     document.querySelectorAll('.le-cell-changed, .le-cell-new').forEach(el => el.classList.remove('le-cell-changed', 'le-cell-new'));
   }, 1500);
-  return changed;
+  // 构建详细描述
+  let desc = [];
+  if (detail.d2i) desc.push(`${detail.d2i}格默认→沿用`);
+  if (detail.d2c) desc.push(`${detail.d2c}格默认→你填`);
+  if (detail.date) desc.push(`${detail.date}格日期变`);
+  if (detail.other) desc.push(`${detail.other}格其他`);
+  return { total: changed, detail: desc.join('、') || '无变化' };
 }
 
 /**
@@ -2864,8 +2889,12 @@ function showOffsetSummary(optGameId) {
     // 快照当前所有数据格子的内容，用于渲染后对比变化
     const snap = snapshotListCells();
     render();
-    const changed = highlightChangedCells(snap);
-    toast(changed > 0 ? `已重新计算，${changed} 个格子有变化（已高亮）` : '已重新计算，无变化');
+    const result = highlightChangedCells(snap);
+    if (result.total > 0) {
+      toast(`已重新计算：${result.total} 个格子变化（${result.detail}）`);
+    } else {
+      toast('已重新计算，无变化');
+    }
   };
   showModal();
 }
