@@ -715,8 +715,10 @@ function learnedAvg(game, hk) {
   return null;
 }
 
-function genGameVersions(game) {
-  const vStart = parseDate(state.viewStart), vEnd = parseDate(state.viewEnd);
+function genGameVersions(game, optRangeStart, optRangeEnd) {
+  // optRangeStart/optRangeEnd: 可选，列表视图等需要不受"视图起始/结束"限制时传入
+  const vStart = optRangeStart ? parseDate(optRangeStart) : parseDate(state.viewStart);
+  const vEnd = optRangeEnd ? parseDate(optRangeEnd) : parseDate(state.viewEnd);
   const vStartMs = vStart.getTime(), vEndMs = vEnd.getTime();
   const out = [];
   const anchorMs = parseDate(game.anchorDate).getTime();
@@ -1252,7 +1254,13 @@ function renderList() {
   const editMode = !!state.listEditMode;
   if (!list.length) { host.innerHTML = '<p class="muted">暂无游戏</p>'; return; }
   list.forEach(game => {
-    const all = genGameVersions(game);
+    // 列表视图使用独立范围，不受"视图起始/结束"限制
+    // 按"显示过去/未来版本数"×周期天数×2倍余量计算宽松范围
+    const lp = state.listPast || 2, lc = state.listCount || 8;
+    const estCycle = (game.baseCycleDays || 42) * 2; // 含大版本余量
+    const listStart = fmtDate(addDays(todayNoon(), -(lp * estCycle)));
+    const listEnd = fmtDate(addDays(todayNoon(), +(lc * estCycle)));
+    const all = genGameVersions(game, listStart, listEnd);
     const tMs = addDays(todayNoon(), -1).getTime();
     // 按日期排序（genGameVersions 返回顺序不保证是时间正序）
     const sorted = [...all].sort((a, b) => a.updateDate.getTime() - b.updateDate.getTime());
