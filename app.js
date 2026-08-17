@@ -1945,8 +1945,14 @@ window.saveListTeaseEdit = function(gameId, targetTenths, charIndex, rowTenths) 
     delete game.verHiddenEvents[hideKey];
   }
 
-  // 如果隐藏了，不需要保存日期/备注名
+  // 如果隐藏了，同时清除日期偏移+备注名数据，避免残留影响时间轴计算
   if (hideThis) {
+    if (game.verEventOffsets) {
+      const offKey = String(targetTenths) + '|' + teaseHk;
+      delete game.verEventOffsets[offKey];
+    }
+    const cnKey = String(targetTenths) + '|' + charIndex;
+    if (game.charNames) delete game.charNames[cnKey];
     closeListCellEditor();
     saveAndRender();
     toast('已隐藏该事件');
