@@ -281,10 +281,23 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 /* 列表视图表头列拖拽排序 */
 .le-col-drag { cursor: grab; user-select: none; transition: background 0.15s, transform 0.12s ease, box-shadow 0.12s ease; }
 .le-col-drag:active { cursor: grabbing; }
-.le-col-drag.drag-over { background: var(--primary-soft) !important; box-shadow: inset 0 -2px 0 var(--primary); }
+/* 拖拽悬停：目标高亮 + 左/右插入线（按光标半区决定插前/插后，与落位逻辑一致） */
+.le-col-drag.drag-over-before, .le-col-drag.drag-over-after,
+.le-group-drag.drag-over-before, .le-group-drag.drag-over-after {
+  background: var(--primary-soft) !important;
+  position: relative;
+}
+.le-col-drag.drag-over-before::after, .le-group-drag.drag-over-before::after {
+  content: ''; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px;
+  background: var(--primary); box-shadow: 0 0 6px var(--primary); border-radius: 2px;
+}
+.le-col-drag.drag-over-after::after, .le-group-drag.drag-over-after::after {
+  content: ''; position: absolute; right: -1px; top: -1px; bottom: -1px; width: 3px;
+  background: var(--primary); box-shadow: 0 0 6px var(--primary); border-radius: 2px;
+}
 .le-group-drag { cursor: grab; user-select: none; transition: background 0.15s, transform 0.12s ease, box-shadow 0.12s ease; }
 .le-group-drag:active { cursor: grabbing; }
-.le-group-drag.drag-over { background: var(--primary-soft) !important; box-shadow: inset 0 -3px 0 var(--primary); }
+/* 组插入线样式见上方统一规则（.le-group-drag.drag-over-before / -after） */
 /* 拖起浮起效果：源单元格被「拎起」 */
 .le-col-drag.le-dragging, .le-group-drag.le-dragging {
   transform: scale(1.06) rotate(-1.2deg);

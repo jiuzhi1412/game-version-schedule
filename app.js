@@ -1438,6 +1438,7 @@ function playColumnFlip(oldMap) {
  *   - 第二行(th.le-col-drag)：拖「子列」，但只能在本组内移动，不能跨组
  * 用模块级 _listDragSrc 记录拖拽源，避免 dragover 中读取 dataTransfer 的限制。 */
 let _listDragSrc = null; // { kind:'group'|'col', groupId, colId }
+let _listInsSide = 'before'; // 'before' | 'after' —— 落位在目标前/后（由光标半区决定）
 function bindColumnDrag() {
   const theads = Array.from(document.querySelectorAll('#view-list thead'));
   const groupEls = Array.from(document.querySelectorAll('#view-list .le-group-drag'));
@@ -1452,7 +1453,7 @@ function bindColumnDrag() {
       try { e.dataTransfer.setData('text/plain', 'group:' + th.dataset.groupId); } catch(_) {}
       th.classList.add('le-dragging');
     });
-    th.addEventListener('dragend', () => { th.classList.remove('le-dragging'); document.querySelectorAll('#view-list .drag-over').forEach(x => x.classList.remove('drag-over')); _listDragSrc = null; });
+    th.addEventListener('dragend', () => { th.classList.remove('le-dragging'); document.querySelectorAll('#view-list .drag-over-before, #view-list .drag-over-after').forEach(x => x.classList.remove('drag-over-before', 'drag-over-after')); _listDragSrc = null; });
   });
   colEls.forEach(th => {
     th.addEventListener('dragstart', e => {
@@ -1461,44 +1462,55 @@ function bindColumnDrag() {
       try { e.dataTransfer.setData('text/plain', 'col:' + th.dataset.groupId + ':' + th.dataset.colId); } catch(_) {}
       th.classList.add('le-dragging');
     });
-    th.addEventListener('dragend', () => { th.classList.remove('le-dragging'); document.querySelectorAll('#view-list .drag-over').forEach(x => x.classList.remove('drag-over')); _listDragSrc = null; });
+    th.addEventListener('dragend', () => { th.classList.remove('le-dragging'); document.querySelectorAll('#view-list .drag-over-before, #view-list .drag-over-after').forEach(x => x.classList.remove('drag-over-before', 'drag-over-after')); _listDragSrc = null; });
   });
 
-  const clearOver = () => document.querySelectorAll('#view-list .le-group-drag.drag-over, #view-list .le-col-drag.drag-over').forEach(x => x.classList.remove('drag-over'));
+  const clearOver = () => document.querySelectorAll('#view-list .drag-over-before, #view-list .drag-over-after').forEach(x => x.classList.remove('drag-over-before', 'drag-over-after'));
 
-  // —— 事件委托：dragover / drop 绑到每个 thead，用 closest() 定位目标（规避 colspan 子元素命中错乱）——
+  // —— 事件委托：dragover / drop 绑到每个 thead，用 closest()/x 坐标定位目标（规避 colspan 子元素命中错乱）——
   theads.forEach(thead => {
   thead.addEventListener('dragover', e => {
     if (!_listDragSrc) return;
-    const gT = e.target.closest('.le-group-drag');
-    const cT = e.target.closest('.le-col-drag');
     clearOver();
     if (_listDragSrc.kind === 'group') {
-      // 组拖：目标为「其他组」即可（含单列与非单列）
-      if (gT && gT.dataset.groupId && gT.dataset.groupId !== _listDragSrc.groupId) {
-        e.preventDefault(); gT.classList.add('drag-over');
+      // 组拖：按光标 x 命中所在分组块（跨两行也生效），左半区=插前、右半区=插后
+      const tgt = groupAtX(e.clientX);
+      if (tgt && tgt.dataset.groupId && tgt.dataset.groupId !== _listDragSrc.groupId) {
+        e.preventDefault();
+        const r = tgt.getBoundingClientRect();
+        _listInsSide = (e.clientX - r.left) < r.width / 2 ? 'before' : 'after';
+        tgt.classList.add('drag-over-' + _listInsSide);
       }
     } else if (_listDragSrc.kind === 'col') {
-      // 子列拖：仅同组且非自身
+      // 子列拖：仅同组且非自身；左半区=插前、右半区=插后
+      const cT = e.target.closest('.le-col-drag');
       if (cT && cT.dataset.groupId === _listDragSrc.groupId && cT.dataset.colId && cT.dataset.colId !== _listDragSrc.colId) {
-        e.preventDefault(); cT.classList.add('drag-over');
+        e.preventDefault();
+        const r = cT.getBoundingClientRect();
+        _listInsSide = (e.clientX - r.left) < r.width / 2 ? 'before' : 'after';
+        cT.classList.add('drag-over-' + _listInsSide);
       }
     }
   });
   thead.addEventListener('dragleave', e => { if (!thead.contains(e.relatedTarget)) clearOver(); });
   thead.addEventListener('drop', e => {
     e.preventDefault(); clearOver();
-    const gT = e.target.closest('.le-group-drag');
     const cT = e.target.closest('.le-col-drag');
     if (_listDragSrc && _listDragSrc.kind === 'group') {
       const srcId = _listDragSrc.groupId;
-      const targetId = gT && gT.dataset.groupId;
+      const tgt = groupAtX(e.clientX); // 与悬停指示一致：按光标 x 命中整块（跨两行）
+      const targetId = tgt && tgt.dataset.groupId;
       if (!targetId || srcId === targetId) return;
       const order = Array.from(document.querySelectorAll('#view-list .le-group-drag')).map(x => x.dataset.groupId);
-      const si = order.indexOf(srcId), ti = order.indexOf(targetId);
-      if (si < 0 || ti < 0) return;
-      order.splice(si, 1); order.splice(ti, 0, srcId);
-      state.listGroupOrder = order;
+      const arr = order.slice();
+      const si = arr.indexOf(srcId);
+      if (si < 0) return;
+      arr.splice(si, 1);
+      const tIdx = arr.indexOf(targetId);
+      if (tIdx < 0) return;
+      // 左半区插前、右半区插后（与悬停插入线一致）
+      arr.splice(_listInsSide === 'after' ? tIdx + 1 : tIdx, 0, srcId);
+      state.listGroupOrder = arr;
       const snap = captureColumnRects();
       saveLocalOnly(); render(); playColumnFlip(snap); toast('分组顺序已调整');
     } else if (_listDragSrc && _listDragSrc.kind === 'col') {
@@ -1506,12 +1518,16 @@ function bindColumnDrag() {
       const tGrp = cT && cT.dataset.groupId, tCol = cT && cT.dataset.colId;
       if (!tGrp || !tCol || tGrp !== srcGrp || tCol === srcCol) return; // 跨组禁止
       const domCols = Array.from(document.querySelectorAll('#view-list .le-col-drag[data-group-id="' + cssEscapeAttr(srcGrp) + '"]')).map(x => x.dataset.colId);
-      const sub = (state.listSubOrder && state.listSubOrder[srcGrp] && state.listSubOrder[srcGrp].length) ? [...state.listSubOrder[srcGrp]] : domCols;
-      const si = sub.indexOf(srcCol), ti = sub.indexOf(tCol);
-      if (si < 0 || ti < 0) return;
-      sub.splice(si, 1); sub.splice(ti, 0, srcCol);
+      const base = (state.listSubOrder && state.listSubOrder[srcGrp] && state.listSubOrder[srcGrp].length) ? [...state.listSubOrder[srcGrp]] : domCols;
+      const arr = base.slice();
+      const si = arr.indexOf(srcCol);
+      if (si < 0) return;
+      arr.splice(si, 1);
+      const tIdx = arr.indexOf(tCol);
+      if (tIdx < 0) return;
+      arr.splice(_listInsSide === 'after' ? tIdx + 1 : tIdx, 0, srcCol);
       state.listSubOrder = state.listSubOrder || {};
-      state.listSubOrder[srcGrp] = sub;
+      state.listSubOrder[srcGrp] = arr;
       const snap = captureColumnRects();
       saveLocalOnly(); render(); playColumnFlip(snap); toast('组内列顺序已调整');
     }
@@ -1521,6 +1537,15 @@ function bindColumnDrag() {
 
 /** 转义用于 querySelector 属性选择器的字符串（组id含下划线，无特殊字符，这里做兜底） */
 function cssEscapeAttr(s) { return String(s).replace(/["\\]/g, '\\$&'); }
+/** 按光标 x 命中所在分组块（跨两行也生效，用于组拖的悬停/落点判定） */
+function groupAtX(x) {
+  let found = null;
+  document.querySelectorAll('#view-list .le-group-drag').forEach(th => {
+    const r = th.getBoundingClientRect();
+    if (x >= r.left && x <= r.right) found = th;
+  });
+  return found;
+}
 
 /** 打开列表单元格的内联编辑弹窗 */
 let _leActiveCell = null; // 当前正在编辑的单元格 DOM
