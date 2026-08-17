@@ -1129,7 +1129,7 @@ function teaseCellHTML(def, remark, editMode, game, v, targetVer, teaseDate, ver
     if (!editMode) {
       return `<td class="vt-empty" title="新角色爆料·角色${ci + 1} 已隐藏">—</td>`;
     }
-    return `<td class="le-editable vt-empty" data-game="${game.id}" data-tenths="${v.tenths}"` +
+    return `<td class="le-editable vt-empty" style="border:1px solid var(--border);border-bottom:0!important" data-game="${game.id}" data-tenths="${v.tenths}"` +
       ` data-cell-type="tease" data-char-index="${ci}"` +
       (targetVer ? ` data-target-tenths="${targetVer.tenths}"` : '') +
       ` title="点击恢复显示：新角色爆料·角色${ci + 1}">` +
@@ -1137,15 +1137,15 @@ function teaseCellHTML(def, remark, editMode, game, v, targetVer, teaseDate, ver
   }
   const tag = remark
     ? `<div class="ev-char-tag" style="background:${color}18;color:${color};border:1px solid ${color}44">${escapeHtml(remark)}</div>`
-    : `<span class="muted" style="border:0!important;outline:0!important;outline-width:0!important;outline-color:transparent!important;box-shadow:none!important;text-decoration:none!important;border-bottom:0!important;background:none!important">—</span>`;
+    : `<span class="muted" style="border:0!important;outline:0!important;box-shadow:none!important;text-decoration-line:none!important;text-decoration-style:none!important;text-decoration-color:transparent!important;text-decoration:none!important;border-bottom:0!important;background:none!important;all:unset;display:inline">—</span>`;
   // 日期倒计时（与 listEvCellHTML 算法一致）
   const cd = teaseDate ? diffDays(teaseDate, todayNoon()) : null;
   const cdTxt = cd === null ? '' : (cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd)));
   const dateHtml = teaseDate
-    ? `<div class="le-cell-date" style="border:0!important;outline:0!important;outline-width:0!important;outline-color:transparent!important;box-shadow:none!important;text-decoration:none!important;border-bottom:0!important;background:none!important">${fmtDate(teaseDate)}</div><div class="muted" style="font-size:11px;border:0!important;outline:0!important;outline-width:0!important;outline-color:transparent!important;box-shadow:none!important;text-decoration:none!important;border-bottom:0!important;background:none!important">${cdTxt}</div>`
-    : `<div class="le-cell-date muted">—</div>`;
+    ? `<div class="le-cell-date" style="border:0!important;outline:0!important;box-shadow:none!important;text-decoration-line:none!important;text-decoration-style:none!important;text-decoration-color:transparent!important;text-decoration:none!important;border-bottom:0!important;background:none!important">${fmtDate(teaseDate)}</div><div class="muted" style="font-size:11px;border:0!important;outline:0!important;box-shadow:none!important;text-decoration-line:none!important;text-decoration-style:none!important;text-decoration-color:transparent!important;text-decoration:none!important;border-bottom:0!important;background:none!important">${cdTxt}</div>`
+    : `<div class="le-cell-date muted" style="border:0!important;outline:0!important;box-shadow:none!important;text-decoration-line:none!important;text-decoration-style:none!important;text-decoration-color:transparent!important;border-bottom:0!important">—</div>`;
   // 爆料列可点击编辑：修改目标版本的角色备注名 + 爆料事件日期
-  return `<td class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}"` +
+  return `<td class="le-editable" style="border:1px solid var(--border);border-bottom:0!important;outline:0!important;box-shadow:none!important" data-game="${game.id}" data-tenths="${v.tenths}"` +
     ` data-cell-type="tease" data-char-index="${ci}"` +
     (targetVer ? ` data-target-tenths="${targetVer.tenths}"` : '') +
     ` title="点击编辑：新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」的备注名与日期">${dateHtml}${tag}` +
