@@ -999,7 +999,7 @@ function renderViewControls() {
     bar.classList.remove('hidden');
     document.getElementById('vc-zoom-out').onclick = () => { state.dayW = Math.max(2, (state.dayW || 4) - 1); saveLocalOnly(); };
     document.getElementById('vc-zoom-in').onclick = () => { state.dayW = Math.min(24, (state.dayW || 4) + 1); saveLocalOnly(); };
-    document.getElementById('vc-zoom').oninput = (e) => { state.dayW = Number(e.target.value) || 4; saveLocalOnly(); };
+    document.getElementById('vc-zoom').oninput = (e) => { state.dayW = Number(e.target.value) || 4; Storage.saveLocal(state); renderTimeline(); };
     document.getElementById('vc-labels').onchange = (e) => { state.showLabels = e.target.checked; saveLocalOnly(); };
     document.getElementById('vc-today').onclick = () => {
       const sc = document.querySelector('#view-timeline .timeline-scroll');
