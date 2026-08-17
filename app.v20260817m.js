@@ -1657,6 +1657,7 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
     // 新角色爆料编辑：修改目标版本的角色备注名 + 爆料事件日期
     const ci = Number(cellEl.dataset.charIndex || 0);
     const targetTenths = cellEl.dataset.targetTenths ? Number(cellEl.dataset.targetTenths) : null;
+    const rowTenths = cellEl.dataset.tenths ? Number(cellEl.dataset.tenths) : null;  // 当前行版本（隐藏 key 用这个）
     const targetVer = targetTenths != null ? genGameVersions(game).find(v => v.tenths === targetTenths) : null;
     const targetLabel = targetVer ? targetVer.label : '（目标版本不存在）';
     const cnKey = String(targetTenths) + '|' + ci;
@@ -1668,9 +1669,9 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
       const d = teaseEv ? teaseEv.date : addDays(targetVer.updateDate, TEASE_OFF);
       currentDateStr = fmtDate(d);
     }
-    // 当前是否已隐藏（per-version）
+    // 当前是否已隐藏（per-row：用当前行版本号，不用目标版本）
     const teaseHk = 'char_tease_' + ci;
-    const isHidden = targetTenths != null && !!(game.verHiddenEvents && game.verHiddenEvents[String(targetTenths) + '|' + teaseHk]);
+    const isHidden = rowTenths != null && !!(game.verHiddenEvents && game.verHiddenEvents[String(rowTenths) + '|' + teaseHk]);
     const CHARS = ['一', '二', '三', '四', '五', '六'];
     editor.innerHTML = `
       <div class="le-editor-title"><span class="chip-dot" style="background:${eventColor('char_tease', ci)};display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle"></span> 新角色爆料·角色${CHARS[ci] || (ci+1)} → 绑定到「${escapeHtml(targetLabel)}」</div>
@@ -1689,7 +1690,7 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
       </label>
       <div class="modal-actions">
         <button onclick="closeListCellEditor()">取消</button>
-        <button class="primary" onclick="saveListTeaseEdit('${gameId}', ${targetTenths}, ${ci})">保存</button>
+        <button class="primary" onclick="saveListTeaseEdit('${gameId}', ${targetTenths}, ${ci}, ${rowTenths})">保存</button>
       </div>`;
   } else {
     // 事件单元格编辑
@@ -1911,11 +1912,12 @@ window.saveListEvEdit = function(gameId, tenths, hk) {
 };
 
 /** 保存新角色爆料编辑（目标版本的角色备注名） */
-window.saveListTeaseEdit = function(gameId, targetTenths, charIndex) {
+window.saveListTeaseEdit = function(gameId, targetTenths, charIndex, rowTenths) {
   const game = state.games.find(g => g.id === gameId);
   if (!game) return;
   const teaseHk = 'char_tease_' + charIndex;
-  const hideKey = String(targetTenths) + '|' + teaseHk;
+  // 隐藏 key 用当前行版本（per-row），不用目标版本
+  const hideKey = String(rowTenths) + '|' + teaseHk;
 
   // 处理「此版本无该事件」隐藏标志
   const hideCb = document.getElementById('le-tease-hide');
