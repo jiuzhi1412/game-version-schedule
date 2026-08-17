@@ -1,9 +1,9 @@
 /* =========================================================================
  * 游戏版本周期日程表  —  Game Version Schedule
  * 纯前端单页应用。数据存 localStorage，预留云端同步接口。
- * v20260817 — banner(卡池更新上半)已从渲染源头移除，与角色一卡池合并
+ * v20260817b — 云端加载路径也清理 banner/char_pv/char_preview（与本地迁移一致）
  * ========================================================================= */
-console.log('[GVS] 加载 app.v20260817.js — 新版本（无卡池更新上半列）');
+console.log('[GVS] 加载 app.v20260817b.js — 云端加载已修复，无卡池更新上半列');
 
 'use strict';
 
@@ -301,12 +301,25 @@ function applyRemoteState(remote) {
   if (!remote || !Array.isArray(remote.games)) return;
   state = remote;
   if (!state.customEvents || !Array.isArray(state.customEvents)) state.customEvents = JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE));
+  // 云端旧数据可能含已废弃的 banner/char_pv/char_preview，加载后先清理（与 init 迁移一致）
+  if (Array.isArray(state.customEvents)) {
+    state.customEvents = state.customEvents.filter(e =>
+      e.key !== 'banner' && e.key !== 'char_pv' && e.key !== 'char_preview');
+  }
+  if (!state.charSubOrder || !state.charSubOrder.length) state.charSubOrder = ['char_banner', 'char_preview', 'char_pv'];
+  if (!state.charGroupOrder || !state.charGroupOrder.length) state.charGroupOrder = [0, 1, 2, 3, 4, 5];
   if (typeof state.dayW !== 'number') state.dayW = 4;
   if (typeof state.listCount !== 'number') state.listCount = 8;
   if (typeof state.listPast !== 'number') state.listPast = 2;
   if (typeof state.showLabels !== 'boolean') state.showLabels = true;
   if (typeof state.listEditMode !== 'boolean') state.listEditMode = false;
-  state.games.forEach(migrateGame);
+  state.games.forEach(g => {
+    migrateGame(g);
+    // 清理 hiddenEventKeys 中已失效的 banner/banner_0/char_pv/char_preview 脏 key
+    if (Array.isArray(g.hiddenEventKeys)) {
+      g.hiddenEventKeys = g.hiddenEventKeys.filter(k => !['banner', 'banner_0', 'banner_1', 'char_pv', 'char_preview'].includes(k));
+    }
+  });
   visibleGames = state.visibleGames || {};
   Storage.save(state); render();
 }
