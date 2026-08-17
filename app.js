@@ -1,9 +1,9 @@
 /* =========================================================================
  * 游戏版本周期日程表  —  Game Version Schedule
  * 纯前端单页应用。数据存 localStorage，预留云端同步接口。
- * 版本: app.js (单一源文件，v20260817ab) — 部署时通过 index.html 的 ?v= 查询参数破坏缓存
+ * 版本: app.js (单一源文件，v20260817ad) — 部署时通过 index.html 的 ?v= 查询参数破坏缓存
  * ========================================================================= */
-console.log('[GVS] ✅ 加载 app.js (v20260817ab) — edit mode 默认关闭');
+console.log('[GVS] ✅ 加载 app.js (v20260817ad) — 偏移改用最邻近确认值，不再平均');
 
 'use strict';
 
@@ -358,6 +358,7 @@ function applyRemoteState(remote) {
   if (typeof state.listPast !== 'number') state.listPast = 2;
   if (typeof state.showLabels !== 'boolean') state.showLabels = true;
   state.listEditMode = false; // 每次打开网页默认关闭编辑模式，不持久化
+  if (typeof state.offsetOnlyConfirmed !== 'boolean') state.offsetOnlyConfirmed = false;
   // listColumnOrder: 自定义列顺序（空数组=使用默认顺序；非空时按此数组排列列）
   if (!Array.isArray(state.listColumnOrder)) state.listColumnOrder = [];
   if (!Array.isArray(state.listGroupOrder)) state.listGroupOrder = [];
@@ -540,7 +541,8 @@ function defaultState() {
     customEvents: JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE)),
     viewStart: fmtDate(addDays(todayNoon(), -60)),
     viewEnd: fmtDate(addDays(todayNoon(), 400)),
-    visibleGames: vis, dayW: 4, listCount: 8, listPast: 2, showLabels: true, listEditMode: false
+    visibleGames: vis, dayW: 4, listCount: 8, listPast: 2, showLabels: true, listEditMode: false,
+    offsetOnlyConfirmed: false
   };
 }
 
@@ -549,7 +551,7 @@ function migrateGame(g) {
   if (!g.minorMaxBreakpoints) g.minorMaxBreakpoints = [];
   if (!g.baseOffsets) g.baseOffsets = {};
   if (!g.eventTitles) g.eventTitles = {};
-  if (!g.eventHistory) g.eventHistory = {};
+  delete g.eventHistory; // 清空历史学习（猜测）数据；偏移只来自你填的日期/全局基准/默认
   if (!g.versionDurations) g.versionDurations = {};
   if (!g.verNotes) g.verNotes = {};
   if (!g.verEventOffsets) g.verEventOffsets = {};
@@ -657,17 +659,33 @@ function evTitleKey(seq, hk) { return seq + '|' + hk; }
 
 /* 推荐偏移：优先取逐版本覆盖 → 有历史取平均 → 自定义基准 baseOffsets → 默认 */
 function eventOffset(game, hk, defOff, tenths) {
-  // 1. 逐版本逐事件覆盖（列表编辑模式写入）
+  // 1. 逐版本逐事件覆盖（列表/版本弹窗里用户亲手填的日期）= 已确认数据
   if (tenths !== undefined && tenths !== null) {
     const veo = game && game.verEventOffsets && game.verEventOffsets[tenths + '|' + hk];
     if (typeof veo === 'number') return veo;
   }
-  // 2. 历史学习平均
-  const h = game && game.eventHistory && game.eventHistory[hk];
-  if (h && h.length) return Math.round(h.reduce((a, b) => a + b, 0) / h.length);
-  // 3. 全局自定义基准
+  // 2. 全局自定义基准（用户在设置里配的）
   const bo = game && game.baseOffsets && game.baseOffsets[hk];
-  return (typeof bo === 'number') ? bo : defOff;
+  if (typeof bo === 'number') return bo;
+  // 3. 默认值（代码写死，如 爆料=33天）
+  return defOff;
+}
+/** 判断某事件在某版本是否用了用户确认的日期（用于来源标记） */
+function offsetIsConfirmed(game, hk, tenths) {
+  return !!(game && game.verEventOffsets && typeof game.verEventOffsets[tenths + '|' + hk] === 'number');
+}
+/** 偏移来源徽章（🟢你填的 / 🟡沿用上次 / 🔵基准 / ⚪默认） */
+function offsetSrcBadge(source) {
+  if (!source || source === 'confirmed') {
+    return `<span class="off-src off-confirmed" title="偏移来源：你亲手填的日期（确定的数据）">🟢你填</span>`;
+  }
+  if (source === 'inherited') {
+    return `<span class="off-src off-inherited" title="偏移来源：沿用你最近一次填的日期（未做平均，非猜测）">🟡沿用</span>`;
+  }
+  if (source === 'base') {
+    return `<span class="off-src off-base" title="偏移来源：你在设置里配的全局基准">🔵基准</span>`;
+  }
+  return `<span class="off-src off-default" title="偏移来源：默认值（代码写死，如爆料=33天）">⚪默认</span>`;
 }
 /** 获取默认偏移量（不含逐版本覆盖，用于判断是否需要存储覆盖） */
 function getDefaultOffset(game, hk) {
@@ -733,7 +751,45 @@ function genGameVersions(game) {
     if (v.updateDate.getTime() <= vEndMs) out.push(v);
     d -= durationOf(game, t) * DAY; t -= 1;
   }
+  resolveInherited(game, out);
   return out;
+}
+
+/**
+ * 为每个事件标注偏移来源，并按「最近确认值」回填未填写版本的偏移。
+ * 来源优先级：confirmed(你填的) > inherited(沿用最近一次你填的) > base(全局基准) > default(默认)
+ * 开启 state.offsetOnlyConfirmed 时跳过 inherited，未填版本一律用 base/default。
+ * @param {Array} versions genGameVersions 已生成的版本数组（按时间无序，本函数内部排序）
+ */
+function resolveInherited(game, versions) {
+  const onlyConfirmed = !!state.offsetOnlyConfirmed;
+  // 按更新日期排序，便于找「最近」的已确认版本
+  const sorted = [...versions].sort((a, b) => a.updateDate.getTime() - b.updateDate.getTime());
+  // 收集每个 hk 的已确认偏移（来自 verEventOffsets = 用户亲手填的日期）
+  const conf = {};
+  sorted.forEach(v => v.events.forEach(ev => {
+    const key = v.tenths + '|' + ev.historyKey;
+    const o = game.verEventOffsets && game.verEventOffsets[key];
+    if (typeof o === 'number') (conf[ev.historyKey] || (conf[ev.historyKey] = [])).push({ ms: v.updateDate.getTime(), off: o });
+  }));
+  Object.values(conf).forEach(arr => arr.sort((a, b) => a.ms - b.ms));
+
+  versions.forEach(v => v.events.forEach(ev => {
+    if (offsetIsConfirmed(game, ev.historyKey, v.tenths)) { ev.source = 'confirmed'; return; }
+    const arr = conf[ev.historyKey];
+    if (arr && arr.length && !onlyConfirmed) {
+      // 找时间上最近的已确认版本
+      let best = arr[0], bd = Math.abs(arr[0].ms - v.updateDate.getTime());
+      for (const c of arr) { const d = Math.abs(c.ms - v.updateDate.getTime()); if (d < bd) { bd = d; best = c; } }
+      ev.offset = best.off;
+      ev.date = addDays(v.updateDate, best.off);
+      ev.source = 'inherited';
+      return;
+    }
+    const bo = game.baseOffsets && game.baseOffsets[ev.historyKey];
+    if (typeof bo === 'number') { ev.source = 'base'; return; }
+    ev.source = 'default';
+  }));
 }
 
 function collectEvents() {
@@ -958,10 +1014,24 @@ function renderViewControls() {
       `<span class="muted">个版本 · 未来</span>` +
       `<input type="number" id="vc-listcount" min="1" max="30" value="${state.listCount || 8}" style="width:56px">` +
       `<span class="muted">个版本</span>` +
+      `<span class="dd" id="offset-dd"><button class="vc-btn" id="vc-offset-btn" style="margin-left:8px">偏移 ▾</button>` +
+        `<div class="dd-menu hidden" id="offset-dd-menu">` +
+          `<button type="button" class="ghost" id="vc-calc-offset" style="display:block;width:100%;text-align:left;margin:2px 0">🧮 计算偏移</button>` +
+          `<label class="vc-check" style="display:block;margin:4px 0;white-space:nowrap"><input type="checkbox" id="vc-only-confirmed" ${state.offsetOnlyConfirmed ? 'checked' : ''}> 只用我填的（关闭自动沿用）</label>` +
+        `</div>` +
+      `</span>` +
       `<span class="muted">点游戏右侧“编辑”改周期/进位规则</span>`;
     bar.classList.remove('hidden');
     document.getElementById('vc-listpast').onchange = (e) => { state.listPast = Math.max(0, Math.min(30, Number(e.target.value) || 0)); saveAndRender(); };
     document.getElementById('vc-listcount').onchange = (e) => { state.listCount = Math.max(1, Math.min(30, Number(e.target.value) || 8)); saveAndRender(); };
+    // 偏移下拉菜单
+    const oddMenu = document.getElementById('offset-dd-menu');
+    document.getElementById('vc-offset-btn').onclick = (e) => { e.stopPropagation(); oddMenu.classList.toggle('hidden'); };
+    document.getElementById('vc-calc-offset').onclick = (e) => { e.stopPropagation(); oddMenu.classList.add('hidden'); showOffsetSummary(); };
+    document.getElementById('vc-only-confirmed').onchange = (e) => {
+      state.offsetOnlyConfirmed = e.target.checked; saveAndRender();
+      toast(e.target.checked ? '已开启：未填版本只用默认偏移（不自动沿用）' : '已关闭：未填版本沿用你最近填的日期');
+    };
   }
 }
 
@@ -1111,18 +1181,18 @@ function listEvCellHTML(game, v, ev, editMode) {
 
   if (!editMode) {
     return `<td class="${soonCls}" title="${escapeHtml(ev.title)}">${fmtDate(ev.date)}` +
-      `<div class="muted" style="font-size:11px">${cdTxt}</div>${customHtml}</td>`;
+      `<div class="muted" style="font-size:11px">${cdTxt}</div>${offsetSrcBadge(ev.source)}${customHtml}</td>`;
   }
   // 编辑模式：可点击编辑
   return `<td class="le-editable ${soonCls}" data-game="${game.id}" data-tenths="${v.tenths}"` +
     ` data-hk="${ev.historyKey}" data-ev-name="${escapeAttr(ev.name)}" title="点击编辑：${escapeHtml(ev.title)}">` +
     `<div class="le-cell-date">${fmtDate(ev.date)}</div>` +
-    `<div class="muted" style="font-size:11px">${cdTxt}</div>${customHtml}` +
+    `<div class="muted" style="font-size:11px">${cdTxt}</div>${offsetSrcBadge(ev.source)}${customHtml}` +
     `<span class="le-edit-hint">✏️</span></td>`;
 }
 
 /** 新角色爆料列单元格：显示绑定目标版本的角色备注名 + 爆料事件日期（可点击编辑） */
-function teaseCellHTML(def, remark, editMode, game, v, targetVer, teaseDate, verHidden) {
+function teaseCellHTML(def, remark, editMode, game, v, targetVer, teaseDate, verHidden, teaseSource) {
   const ci = def.charIndex != null ? def.charIndex : 0;
   const color = eventColor('char_tease', ci);
   const hidden = verHidden || !!def._hidden;
@@ -1150,12 +1220,12 @@ function teaseCellHTML(def, remark, editMode, game, v, targetVer, teaseDate, ver
     : `<div class="le-cell-date muted" style="border:0!important;outline:0!important;box-shadow:none!important;text-decoration-line:none!important;text-decoration-style:none!important;text-decoration-color:transparent!important;border-bottom:0!important">—</div>`;
   // 爆料列可点击编辑：修改目标版本的角色备注名 + 爆料事件日期
   if (!editMode) {
-    return `<td title="新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」">${dateHtml}${tag}</td>`;
+    return `<td title="新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」">${dateHtml}${offsetSrcBadge(teaseSource)}${tag}</td>`;
   }
   return `<td class="le-editable" style="border:1px solid var(--border);border-bottom:0!important;outline:0!important;box-shadow:none!important" data-game="${game.id}" data-tenths="${v.tenths}"` +
     ` data-cell-type="tease" data-char-index="${ci}"` +
     (targetVer ? ` data-target-tenths="${targetVer.tenths}"` : '') +
-    ` title="点击编辑：新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」的备注名与日期">${dateHtml}${tag}` +
+    ` title="点击编辑：新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」的备注名与日期">${dateHtml}${offsetSrcBadge(teaseSource)}${tag}` +
     `<span class="le-edit-hint">✏️</span></td>`;
 }
 
@@ -1295,7 +1365,7 @@ function renderList() {
           // 检查该版本是否隐藏了此爆料事件（per-version 隐藏 或 列级隐藏）
           const teaseHk = 'char_tease_' + ci;
           const verHidden = !!(game.verHiddenEvents && game.verHiddenEvents[String(v.tenths) + '|' + teaseHk]);
-          cell = teaseCellHTML(col.def, remark, editMode, game, v, rowTarget, teaseDate, verHidden);
+          cell = teaseCellHTML(col.def, remark, editMode, game, v, rowTarget, teaseDate, verHidden, teaseEv ? teaseEv.source : null);
         } else {
           const ev = lookupEv(col.def, col.idx);
           cell = ev ? listEvCellHTML(game, v, ev, editMode) : '<td></td>';
@@ -2154,7 +2224,7 @@ function openVersionModal(gameId, tenths, focusHk) {
     <button id="m-dur-reset" class="ghost">恢复基础周期</button></div>
     <div class="muted" style="margin-top:4px">修改后，该版本之后的所有版本会自动顺延。</div></div>`;
 
-  html += `<div class="field"><label>事件（改日期记入历史偏移；可填自定义名称，如角色名）</label>`;
+  html += `<div class="field"><label>事件（改日期即记为「你填的」确认数据，参与后续自动沿用；可填自定义名称，如角色名）</label>`;
   v.events.forEach(ev => {
     const off = diffDays(ev.date, v.updateDate);
     const tkey = evTitleKey(v.tenths, ev.historyKey);
@@ -2163,7 +2233,7 @@ function openVersionModal(gameId, tenths, focusHk) {
       <span class="ev-name"><span class="chip-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${eventColor(ev.defKey, ev.charIndex ?? ev.sub)}"></span> ${escapeHtml(ev.name)}</span>
       <input type="text" class="m-title" data-tkey="${tkey}" placeholder="自定义名称" value="${escapeAttr(custom)}" style="max-width:120px">
       <input type="date" data-hk="${ev.historyKey}" data-defkey="${ev.defKey}" data-sub="${ev.sub}" value="${fmtDate(ev.date)}">
-      <span class="ev-offset">+${off}天</span>
+      <span class="ev-offset">+${off}天</span>${offsetSrcBadge(ev.source)}
     </div>`;
   });
   html += `</div>`;
@@ -2192,12 +2262,22 @@ function openVersionModal(gameId, tenths, focusHk) {
   });
   body.querySelectorAll('input[type="date"][data-hk]').forEach(inp => {
     inp.onchange = (e) => {
-      const newDate = parseDate(e.target.value);
+      const hk = inp.dataset.hk;
+      const val = e.target.value;
+      if (!game.verEventOffsets) game.verEventOffsets = {};
+      if (!val) {
+        // 清空日期 = 删除该版本该事件的确认偏移（回归自动计算）
+        delete game.verEventOffsets[String(tenths) + '|' + hk];
+        saveAndRender(); openVersionModal(gameId, tenths, focusHk);
+        toast('已清除该日期，偏移回归自动计算');
+        return;
+      }
+      const newDate = parseDate(val);
       const upd = parseDate(document.getElementById('m-update').value);
       const off = diffDays(newDate, upd);
-      recordOffset(game, inp.dataset.hk, off);
+      game.verEventOffsets[String(tenths) + '|' + hk] = off; // 存为「你填的」确认日期
       saveAndRender(); openVersionModal(gameId, tenths, focusHk);
-      toast(`已记录偏移 +${off} 天，后续按历史平均推荐（可去游戏设置重置学习）`);
+      toast(`已保存你填的日期（偏移 ${off >= 0 ? '+' : ''}${off} 天），参与后续自动沿用`);
     };
   });
   showModal();
@@ -2316,18 +2396,20 @@ function openGamePanel(gameId, focusTenths) {
 function buildGpRulesTab(game) {
   const anchorDt = parseDate(game.anchorDate);
   let offHtml = '<div class="field"><label>事件默认日期 / 偏移（相对版本更新日）</label>' +
-    '<div class="muted" style="margin-bottom:6px">选择参考日期 → 自动算偏移天数。有手动记录时按历史平均优先。</div>';
+    '<div class="muted" style="margin-bottom:6px">你填的日期优先于默认偏移；未填版本会沿用你最近一次填的同一事件真实偏移（不做平均）。</div>';
   activeEvents().forEach(def => {
     def.offsets.forEach((defOff, idx) => {
       const hk = def.key + (def.offsets.length > 1 ? '_' + idx : '');
       const base = (game.baseOffsets && typeof game.baseOffsets[hk] === 'number') ? game.baseOffsets[hk] : defOff;
       const refDate = fmtDate(addDays(anchorDt, base));
-      const avg = learnedAvg(game, hk);
-      const reset = (avg !== null) ? `<button type="button" class="ghost off-reset" data-hk="${hk}" style="font-size:11px;padding:2px 6px">重置学习(${game.eventHistory[hk].length})</button>` : '<span class="muted" style="font-size:11px">无记录</span>';
+      const confCount = game.verEventOffsets ? Object.keys(game.verEventOffsets).filter(k => k.endsWith('|' + hk)).length : 0;
+      const clearBtn = confCount > 0
+        ? `<button type="button" class="ghost off-clear" data-hk="${hk}" style="font-size:11px;padding:2px 6px">清除已填(${confCount})</button>`
+        : '';
       offHtml += `<div class="ev-row"><span class="ev-name">${escapeHtml(def.name + (def.sub ? def.sub[idx] : ''))}</span>` +
         `<input type="date" class="off-date" data-hk="${hk}" value="${refDate}">` +
         `<span class="muted" style="font-size:11px;min-width:72px;text-align:center">→ <strong class="off-calc" data-hk="${hk}">${base}</strong> 天</span>` +
-        `<span class="muted" style="font-size:11px">${avg !== null ? ('均值' + avg) : '默认'}</span>${reset}` +
+        `<span class="muted" style="font-size:11px">${confCount > 0 ? ('已填 ' + confCount + ' 个版本') : '默认'}</span>${clearBtn}` +
         `<input type="hidden" class="off-inp" data-hk="${hk}" value="${base}"></div>`;
     });
   });
@@ -2423,10 +2505,12 @@ function setupIconSync(body, game, ic) {
       const baseOff = hidden ? Number(hidden.value) : 0; inp.value = fmtDate(addDays(anch, baseOff));
     });
   };
-  body.querySelectorAll('.off-reset').forEach(b => b.onclick = () => {
+  body.querySelectorAll('.off-clear').forEach(b => b.onclick = () => {
     const hk = b.dataset.hk; const game = _gpGameId ? state.games.find(g => g.id === _gpGameId) : null;
-    if (game && game.eventHistory) delete game.eventHistory[hk];
-    saveAndRender(); openGamePanel(_gpGameId); toast('已重置学习记录');
+    if (game && game.verEventOffsets) {
+      Object.keys(game.verEventOffsets).forEach(k => { if (k.endsWith('|' + hk)) delete game.verEventOffsets[k]; });
+    }
+    saveAndRender(); openGamePanel(_gpGameId); toast('已清除该事件所有已填日期');
   });
 
   // 进位规则增删
@@ -2601,6 +2685,39 @@ function showModal() {
 }
 function hideModal() { document.getElementById('modal-mask').classList.remove('show'); }
 
+/** 偏移计算汇总：统计所有事件偏移的来源分布（🟢你填 / 🟡沿用 / 🔵基准 / ⚪默认） */
+function showOffsetSummary() {
+  let total = 0, confirmed = 0, inherited = 0, base = 0, def = 0;
+  const lines = [];
+  state.games.filter(g => visibleGames[g.id] !== false).forEach(game => {
+    const vers = genGameVersions(game);
+    let gc = 0, gi = 0, gb = 0, gd = 0;
+    vers.forEach(v => v.events.forEach(ev => {
+      total++;
+      if (ev.source === 'confirmed') { confirmed++; gc++; }
+      else if (ev.source === 'inherited') { inherited++; gi++; }
+      else if (ev.source === 'base') { base++; gb++; }
+      else { def++; gd++; }
+    }));
+    if (gc + gi + gb + gd > 0) {
+      lines.push(`<div style="margin:3px 0">${escapeHtml(game.name)}：🟢你填 <b>${gc}</b> · 🟡沿用 <b>${gi}</b> · 🔵基准 <b>${gb}</b> · ⚪默认 <b>${gd}</b></div>`);
+    }
+  });
+  const only = state.offsetOnlyConfirmed
+    ? '（当前开关：<b>只用我填的</b> —— 未填版本只用默认偏移，不自动沿用）'
+    : '（当前开关：未填版本<b>沿用你最近填的日期</b>，不做平均）';
+  const body =
+    `<p>共 <b>${total}</b> 个偏移点：` +
+    (total ? `🟢你填的 <b>${confirmed}</b> · 🟡沿用上次 <b>${inherited}</b> · 🔵基准 <b>${base}</b> · ⚪默认 <b>${def}</b>` : '无') +
+    `</p>` +
+    `<p class="muted" style="font-size:12px">${only}</p>` +
+    `<div style="max-height:240px;overflow:auto;margin-top:8px;border-top:1px solid var(--border);padding-top:8px">${lines.join('') || '<p class="muted">暂无可见游戏</p>'}</div>` +
+    `<p class="muted" style="font-size:12px;margin-top:8px">🟢你亲手填的日期（确定的数据）· 🟡沿用 = 取你最近一次填的同一事件真实偏移（<b>未做平均，不会出现虚假的中间值</b>）· ⚪默认 = 代码写死（如爆料=33天）</p>`;
+  document.getElementById('modal-title').textContent = '🧮 偏移计算汇总';
+  document.getElementById('modal-body').innerHTML = body;
+  showModal();
+}
+
 /* 颜色加深/变浅（用于版本块渐变） */
 function shade(hex, percent) {
   const n = parseInt(hex.slice(1), 16);
@@ -2719,7 +2836,12 @@ function bindToolbar() {
       else if (act === 'backup') { curSettingsTab = 's-basic'; openSettings(); }
     };
   });
-  document.addEventListener('click', (e) => { if (dd && !dd.contains(e.target)) ddMenu.classList.add('hidden'); });
+  document.addEventListener('click', (e) => {
+    if (dd && !dd.contains(e.target)) ddMenu.classList.add('hidden');
+    const odd = document.getElementById('offset-dd');
+    const oddMenu = document.getElementById('offset-dd-menu');
+    if (odd && oddMenu && !odd.contains(e.target)) oddMenu.classList.add('hidden');
+  });
   bt.classList.add('active');
 }
 

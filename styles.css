@@ -512,3 +512,20 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
   .tl-lane-label { width: 120px; font-size: 12px; }
   .cal-grid { grid-template-columns: repeat(7, minmax(92px, 1fr)); min-width: 660px; }
 }
+
+/* 偏移来源徽章（🟢你填 / 🟡沿用 / 🔵基准 / ⚪默认） */
+.off-src {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1.4;
+  padding: 0 4px;
+  margin-left: 4px;
+  border-radius: 6px;
+  vertical-align: middle;
+  white-space: nowrap;
+  opacity: .85;
+}
+.off-confirmed { background: #e6f7ed; color: #137a43; }
+.off-inherited { background: #fff6e0; color: #9a6b00; }
+.off-base { background: #e8f0ff; color: #2b5fb3; }
+.off-default { background: #eef1f5; color: #8a93a3; }
