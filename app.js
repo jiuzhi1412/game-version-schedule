@@ -1269,7 +1269,7 @@ function renderList() {
     const allSorted = sorted; // 已按日期正序
 
     // 该游戏可见的事件列（全局 + 按游戏隐藏过滤后）
-    const gEvts = gameActiveEvents(game);
+    const gEvts = gameActiveEvents(game).filter(e => e.key !== 'version_update'); // 版本更新日期已合入版本列，不再单独显示
     // 🔍 诊断：打印列表视图实际渲染的表头文字（定位"卡池更新上半"来源）
     const headTexts = [];
     gEvts.forEach(def => def.offsets.forEach((o, idx) => {
@@ -1394,17 +1394,19 @@ function renderList() {
     };
 
     // 渲染顺序：更早历史(灰) → —今天— → 📍当前版本(高亮) → 未来(正常)
-    // 合并版本号+更新日期为一个单元格
+    // 合并版本号+更新日期+倒计时为一个单元格
     const verDateTd = (v, isCurrent) => {
       const prefix = isCurrent ? '📍 ' : '';
       const dateStr = fmtDate(v.updateDate);
+      const cd = diffDays(v.updateDate, todayNoon());
+      const cdTxt = cd === 0 ? '· 今天' : (cd > 0 ? `· +${cd}` : `· ${cd}`);
       if (editMode) {
         return `<td class="vt-ver">` +
           `<span class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="ver" title="点击编辑版本信息">${prefix}${v.label}<span class="le-edit-hint">✏️</span></span>` +
-          `（<span class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="update" title="点击修改更新日期">${dateStr}<span class="le-edit-hint">✏️</span></span>）` +
+          `（<span class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="update" title="点击修改更新日期">${dateStr}<span class="le-edit-hint">✏️</span></span><span class="muted" style="font-size:11px;margin-left:2px">${cdTxt}</span>）` +
           `</td>`;
       }
-      return `<td class="vt-ver">${prefix}${v.label}（${dateStr}）</td>`;
+      return `<td class="vt-ver">${prefix}${v.label}（${dateStr}<span class="muted" style="font-size:11px;margin-left:2px">${cdTxt}</span>）</td>`;
     };
     // ---- 更早的历史版本 ----
     olderVersions.forEach(v => {
