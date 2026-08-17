@@ -65,9 +65,9 @@ function activeEvents() {
   if (Array.isArray(raw) && raw.some(e => e.key === 'banner' || (e.key||'').toString().trim() === 'banner')) {
     console.warn('[GVS] ⚠️ activeEvents 检测到 banner 未被过滤！customEvents keys:', raw.map(e=>e.key));
   }
-  // 权威名称表：云端/本地 customEvents 的 name 字段可能损坏，一律用模板纠正
-  const TMPL_NAME = {};
-  EVENT_DEFS_TEMPLATE.forEach(t => { TMPL_NAME[t.key] = t.name; });
+  // 权威定义表：云端/本地 customEvents 的 name/sub/offsets 字段可能损坏，一律用模板纠正
+  const TMPL = {};
+  EVENT_DEFS_TEMPLATE.forEach(t => { TMPL[t.key] = t; });
   const base = raw.filter(e => {
     const k = (e.key || '').toString().trim();
     if (k.startsWith('banner')) return false; // 过滤所有 banner 变体
@@ -75,7 +75,12 @@ function activeEvents() {
       k !== 'char_pv' && k !== 'char_preview';
   }).map(e => {
     const k = (e.key || '').toString().trim();
-    if (TMPL_NAME[k] && !e._isChar) return { ...e, name: TMPL_NAME[k] }; // 用权威名称纠正损坏的名字
+    const t = TMPL[k];
+    if (t && !e._isChar) {
+      // 用权威模板覆盖 name/sub/offsets，保留用户的隐藏状态
+      return { key: t.key, name: t.name, offsets: t.offsets.slice(),
+        sub: t.sub ? t.sub.slice() : undefined, hidden: e.hidden, _origKey: e._origKey };
+    }
     return e;
   });
   // 追加动态角色事件（从第一个游戏取 charCount，或默认2）
@@ -323,12 +328,13 @@ function applyRemoteState(remote) {
     });
   }
   console.log('[GVS] 🔍 清理后 customEvents keys:', state.customEvents.map(e=>e.key), '（删除了', beforeLen - state.customEvents.length, '条）');
-  // 纠正云端 customEvents 中损坏的 name（以 EVENT_DEFS_TEMPLATE 权威名称为准），并写回
-  const TMPL_NAME = {};
-  EVENT_DEFS_TEMPLATE.forEach(t => { TMPL_NAME[t.key] = t.name; });
+  // 纠正云端 customEvents 中损坏的 name/sub/offsets（以 EVENT_DEFS_TEMPLATE 权威定义为准），并写回
+  const TMPL = {};
+  EVENT_DEFS_TEMPLATE.forEach(t => { TMPL[t.key] = t; });
   state.customEvents.forEach(e => {
     const k = (e.key || '').toString().trim();
-    if (TMPL_NAME[k] && !e._isChar) e.name = TMPL_NAME[k];
+    const t = TMPL[k];
+    if (t && !e._isChar) { e.name = t.name; e.sub = t.sub ? t.sub.slice() : undefined; e.offsets = t.offsets.slice(); }
   });
   if (!state.charSubOrder || !state.charSubOrder.length) state.charSubOrder = ['char_banner', 'char_preview', 'char_pv'];
   if (!state.charGroupOrder || !state.charGroupOrder.length) state.charGroupOrder = [0, 1, 2, 3, 4, 5];
