@@ -2711,37 +2711,58 @@ function showModal() {
 }
 function hideModal() { document.getElementById('modal-mask').classList.remove('show'); }
 
-/** 偏移计算汇总：统计所有事件偏移的来源分布（🟢你填 / 🟡沿用 / 🔵基准 / ⚪默认） */
+/** 偏移计算汇总：按游戏独立展示每个游戏的偏移来源分布 */
 function showOffsetSummary() {
-  let total = 0, confirmed = 0, inherited = 0, base = 0, def = 0;
-  const lines = [];
+  const only = state.offsetOnlyConfirmed
+    ? '当前模式：<b>只用我填的</b>（未填版本只用默认偏移，不自动沿用）'
+    : '当前模式：未填版本<b>沿用你最近填的日期</b>（不做平均）';
+  const cards = [];
+  let gTotal = 0, gConfirmed = 0, gInherited = 0, gBase = 0, gDef = 0;
   state.games.filter(g => visibleGames[g.id] !== false).forEach(game => {
     const vers = genGameVersions(game);
     let gc = 0, gi = 0, gb = 0, gd = 0;
+    const evDetails = []; // 按事件名统计
     vers.forEach(v => v.events.forEach(ev => {
-      total++;
-      if (ev.source === 'confirmed') { confirmed++; gc++; }
-      else if (ev.source === 'inherited') { inherited++; gi++; }
-      else if (ev.source === 'base') { base++; gb++; }
-      else { def++; gd++; }
+      gTotal++;
+      if (ev.source === 'confirmed') { gConfirmed++; gc++; }
+      else if (ev.source === 'inherited') { gInherited++; gi++; }
+      else if (ev.source === 'base') { gBase++; gb++; }
+      else { gDef++; gd++; }
+      // 收集事件级详情
+      const ek = ev.name;
+      let d = evDetails.find(e => e.n === ek);
+      if (!d) { d = { n: ek, c: 0, i: 0, b: 0, dd: 0 }; evDetails.push(d); }
+      if (ev.source === 'confirmed') d.c++;
+      else if (ev.source === 'inherited') d.i++;
+      else if (ev.source === 'base') d.b++;
+      else d.dd++;
     }));
     if (gc + gi + gb + gd > 0) {
-      lines.push(`<div style="margin:3px 0">${escapeHtml(game.name)}：🟢你填 <b>${gc}</b> · 🟡沿用 <b>${gi}</b> · 🔵基准 <b>${gb}</b> · ⚪默认 <b>${gd}</b></div>`);
+      // 每个事件一行小字
+      const evLines = evDetails.map(d =>
+        `<div style="font-size:11px;color:var(--text-muted);padding:1px 0;padding-left:12px">· ${escapeHtml(d.n)}：🟢${d.c} 🟡${d.i} 🔵${d.b} ⚪${d.dd}</div>`
+      ).join('');
+      cards.push(
+        `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--bg-card,fff)">` +
+        `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">` +
+        `<b style="font-size:14px">${escapeHtml(game.name)}</b>` +
+        `<span style="font-size:12px">共 <b>${gc+gi+gb+gd}</b> 个偏移点</span>` +
+        `</div>` +
+        `<div style="font-size:13px">🟢你手动填写 <b>${gc}</b> · 🟡自动沿用 <b>${gi}</b> · 🔵全局基准 <b>${gb}</b> · ⚪系统默认 <b>${gd}</b></div>` +
+        (evLines ? `<div style="margin-top:6px;border-top:1px dashed var(--border);padding-top:4px">${evLines}</div>` : '') +
+        `</div>`
+      );
     }
   });
-  const only = state.offsetOnlyConfirmed
-    ? '（当前开关：<b>只用我填的</b> —— 未填版本只用默认偏移，不自动沿用）'
-    : '（当前开关：未填版本<b>沿用你最近填的日期</b>，不做平均）';
   const body =
-    `<p>共 <b>${total}</b> 个偏移点：` +
-    (total ? `🟢你填的 <b>${confirmed}</b> · 🟡沿用上次 <b>${inherited}</b> · 🔵基准 <b>${base}</b> · ⚪默认 <b>${def}</b>` : '无') +
-    `</p>` +
     `<p class="muted" style="font-size:12px">${only}</p>` +
-    `<div style="max-height:240px;overflow:auto;margin-top:8px;border-top:1px solid var(--border);padding-top:8px">${lines.join('') || '<p class="muted">暂无可见游戏</p>'}</div>` +
-    `<p class="muted" style="font-size:12px;margin-top:8px">🟢你亲手填的日期（确定的数据）· 🟡沿用 = 取你最近一次填的同一事件真实偏移（<b>未做平均，不会出现虚假的中间值</b>）· ⚪默认 = 代码写死（如爆料=33天）</p>`;
+    `<div style="max-height:360px;overflow:auto;margin-top:6px">${cards.join('') || '<p class="muted">暂无可见游戏</p>'}</div>` +
+    `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:12px" class="muted">` +
+    `全部合计：${gTotal} 个 · 🟢${gConfirmed} · 🟡${gInherited} · 🔵${gBase} · ⚪${gDef}` +
+    `</div>`;
   document.getElementById('modal-title').textContent = '🧮 偏移计算汇总';
   document.getElementById('modal-body').innerHTML = body;
-  document.getElementById('modal-save').onclick = () => { hideModal(); toast('已查看'); };
+  document.getElementById('modal-save').onclick = () => { hideModal(); render(); toast('已查看'); };
   showModal();
 }
 
