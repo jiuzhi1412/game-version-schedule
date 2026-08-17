@@ -3,7 +3,7 @@
  * 纯前端单页应用。数据存 localStorage，预留云端同步接口。
  * ========================================================================= */
 
-console.log('[GVS] 加载 app.v20260817b.js — 含诊断日志，请查看 Console 输出');
+console.log('[GVS] 加载 app.v20260817b.js — 已修复 banner_0 变体过滤，无卡池更新上半列');
 
 'use strict';
 
@@ -69,9 +69,9 @@ function activeEvents() {
   }
   const base = raw.filter(e => {
     const k = (e.key || '').toString().trim();
+    if (k.startsWith('banner')) return false; // 过滤所有 banner 变体
     return e.hidden !== true &&
-      k !== 'char_pv' && k !== 'char_preview' &&
-      k !== 'banner';
+      k !== 'char_pv' && k !== 'char_preview';
   });
   // 追加动态角色事件（从第一个游戏取 charCount，或默认2）
   const charCount = (state.games && state.games[0] && state.games[0].charCount) || 2;
@@ -305,14 +305,16 @@ function supabaseAdapter() {
 function applyRemoteState(remote) {
   if (!remote || !Array.isArray(remote.games)) return;
   state = remote;
-  console.log('[GVS] 🔍 云端数据 customEvents 原始 keys:', Array.isArray(state.customEvents) ? state.customEvents.map(e=>e.key) : '非数组:' + typeof state.customEvents);
+  console.log('[GVS] 🔍 云端数据 customEvents 原始 keys:', Array.isArray(state.customEvents) ? state.customEvents.map(e=>e.key).join(', ') : '非数组:' + typeof state.customEvents);
   if (!state.customEvents || !Array.isArray(state.customEvents)) state.customEvents = JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE));
   // 云端旧数据可能含已废弃的 banner/char_pv/char_preview，加载后先清理（与 init 迁移一致）
   const beforeLen = state.customEvents.length;
   if (Array.isArray(state.customEvents)) {
     state.customEvents = state.customEvents.filter(e => {
       const k = (e.key || '').toString().trim();
-      return k !== 'banner' && k !== 'char_pv' && k !== 'char_preview';
+      // 过滤所有 banner 变体（banner/banner_0/banner_1…）+ 已废弃的 char_pv/char_preview
+      if (k.startsWith('banner')) return false;
+      return k !== 'char_pv' && k !== 'char_preview';
     });
   }
   console.log('[GVS] 🔍 清理后 customEvents keys:', state.customEvents.map(e=>e.key), '（删除了', beforeLen - state.customEvents.length, '条）');
@@ -833,7 +835,7 @@ function reorderCharSubs(fromKey, toKey) {
 }
 
 /* ----------------------------- 视图统一设置条 + 时间轴侧栏 ----------------------------- */
-const SHORT = { version_update: '更新', banner_0: '上半', char_tease: '爆料', version_preview: '前瞻',
+const SHORT = { version_update: '更新', char_tease: '爆料', version_preview: '前瞻',
   char_banner_0: '角色一卡池', char_banner_1: '角色二卡池', char_banner_2: '角色三卡池', char_banner_3: '角色四卡池', char_banner_4: '角色五卡池', char_banner_5: '角色六卡池',
   char_preview_0: '一预告', char_preview_1: '二预告', char_preview_2: '三预告', char_preview_3: '四预告', char_preview_4: '五预告', char_preview_5: '六预告',
   char_pv_0: '一PV', char_pv_1: '二PV', char_pv_2: '三PV', char_pv_3: '四PV', char_pv_4: '五PV', char_pv_5: '六PV' };
