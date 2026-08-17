@@ -1395,10 +1395,10 @@ function bindListEditCells() {
  * 用模块级 _listDragSrc 记录拖拽源，避免 dragover 中读取 dataTransfer 的限制。 */
 let _listDragSrc = null; // { kind:'group'|'col', groupId, colId }
 function bindColumnDrag() {
-  const thead = document.querySelector('#view-list thead');
+  const theads = Array.from(document.querySelectorAll('#view-list thead'));
   const groupEls = Array.from(document.querySelectorAll('#view-list .le-group-drag'));
   const colEls = Array.from(document.querySelectorAll('#view-list .le-col-drag'));
-  if (!thead || (!groupEls.length && !colEls.length)) return;
+  if (!theads.length || (!groupEls.length && !colEls.length)) return;
 
   // —— 拖拽源：仍绑在各 th（draggable 元素本身）——
   groupEls.forEach(th => {
@@ -1422,7 +1422,8 @@ function bindColumnDrag() {
 
   const clearOver = () => document.querySelectorAll('#view-list .le-group-drag.drag-over, #view-list .le-col-drag.drag-over').forEach(x => x.classList.remove('drag-over'));
 
-  // —— 事件委托：dragover / drop 绑到 thead，用 closest() 定位目标（规避 colspan 子元素命中错乱）——
+  // —— 事件委托：dragover / drop 绑到每个 thead，用 closest() 定位目标（规避 colspan 子元素命中错乱）——
+  theads.forEach(thead => {
   thead.addEventListener('dragover', e => {
     if (!_listDragSrc) return;
     const gT = e.target.closest('.le-group-drag');
@@ -1468,6 +1469,7 @@ function bindColumnDrag() {
       state.listSubOrder[srcGrp] = sub;
       saveLocalOnly(); render(); toast('组内列顺序已调整');
     }
+  });
   });
 }
 
