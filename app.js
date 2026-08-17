@@ -65,11 +65,18 @@ function activeEvents() {
   if (Array.isArray(raw) && raw.some(e => e.key === 'banner' || (e.key||'').toString().trim() === 'banner')) {
     console.warn('[GVS] ⚠️ activeEvents 检测到 banner 未被过滤！customEvents keys:', raw.map(e=>e.key));
   }
+  // 权威名称表：云端/本地 customEvents 的 name 字段可能损坏，一律用模板纠正
+  const TMPL_NAME = {};
+  EVENT_DEFS_TEMPLATE.forEach(t => { TMPL_NAME[t.key] = t.name; });
   const base = raw.filter(e => {
     const k = (e.key || '').toString().trim();
     if (k.startsWith('banner')) return false; // 过滤所有 banner 变体
     return e.hidden !== true &&
       k !== 'char_pv' && k !== 'char_preview';
+  }).map(e => {
+    const k = (e.key || '').toString().trim();
+    if (TMPL_NAME[k] && !e._isChar) return { ...e, name: TMPL_NAME[k] }; // 用权威名称纠正损坏的名字
+    return e;
   });
   // 追加动态角色事件（从第一个游戏取 charCount，或默认2）
   const charCount = (state.games && state.games[0] && state.games[0].charCount) || 2;
@@ -316,6 +323,13 @@ function applyRemoteState(remote) {
     });
   }
   console.log('[GVS] 🔍 清理后 customEvents keys:', state.customEvents.map(e=>e.key), '（删除了', beforeLen - state.customEvents.length, '条）');
+  // 纠正云端 customEvents 中损坏的 name（以 EVENT_DEFS_TEMPLATE 权威名称为准），并写回
+  const TMPL_NAME = {};
+  EVENT_DEFS_TEMPLATE.forEach(t => { TMPL_NAME[t.key] = t.name; });
+  state.customEvents.forEach(e => {
+    const k = (e.key || '').toString().trim();
+    if (TMPL_NAME[k] && !e._isChar) e.name = TMPL_NAME[k];
+  });
   if (!state.charSubOrder || !state.charSubOrder.length) state.charSubOrder = ['char_banner', 'char_preview', 'char_pv'];
   if (!state.charGroupOrder || !state.charGroupOrder.length) state.charGroupOrder = [0, 1, 2, 3, 4, 5];
   if (typeof state.dayW !== 'number') state.dayW = 4;
