@@ -1679,7 +1679,7 @@ function bindColumnDrag() {
       arr.splice(_listInsSide === 'after' ? tIdx + 1 : tIdx, 0, srcId);
       state.listGroupOrder = arr;
       const snap = captureColumnRects();
-      saveLocalOnly(); render(); playColumnFlip(snap); toast('分组顺序已调整');
+      saveLocalOnly(); playColumnFlip(snap); toast('分组顺序已调整');
     } else if (_listDragSrc && _listDragSrc.kind === 'col') {
       const srcGrp = _listDragSrc.groupId, srcCol = _listDragSrc.colId;
       const tGrp = cT && cT.dataset.groupId, tCol = cT && cT.dataset.colId;
@@ -1696,7 +1696,7 @@ function bindColumnDrag() {
       state.listSubOrder = state.listSubOrder || {};
       state.listSubOrder[srcGrp] = arr;
       const snap = captureColumnRects();
-      saveLocalOnly(); render(); playColumnFlip(snap); toast('组内列顺序已调整');
+      saveLocalOnly(); playColumnFlip(snap); toast('组内列顺序已调整');
     }
   });
   });
