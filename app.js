@@ -1190,14 +1190,15 @@ function listEvCellHTML(game, v, ev, editMode) {
   }
 
   if (!editMode) {
-    return `<td class="${soonCls}" title="${escapeHtml(ev.title)}">${fmtDate(ev.date)}` +
-      `<div class="muted" style="font-size:11px">${cdTxt}</div>${offsetSrcDot(ev.source)}${customHtml}</td>`;
+    return `<td class="${soonCls}" title="${escapeHtml(ev.title)}">` +
+      `<div class="le-cell-date">${fmtDate(ev.date)}<span class="muted" style="font-size:11px;margin-left:4px">${cdTxt}</span></div>` +
+      `<div class="le-cell-meta">${offsetSrcDot(ev.source)}${customHtml}</div></td>`;
   }
   // 编辑模式：可点击编辑
   return `<td class="le-editable ${soonCls}" data-game="${game.id}" data-tenths="${v.tenths}"` +
     ` data-hk="${ev.historyKey}" data-ev-name="${escapeAttr(ev.name)}" title="点击编辑：${escapeHtml(ev.title)}">` +
-    `<div class="le-cell-date">${fmtDate(ev.date)}</div>` +
-    `<div class="muted" style="font-size:11px">${cdTxt}</div>${offsetSrcDot(ev.source)}${customHtml}` +
+    `<div class="le-cell-date">${fmtDate(ev.date)}<span class="muted" style="font-size:11px;margin-left:4px">${cdTxt}</span></div>` +
+    `<div class="le-cell-meta">${offsetSrcDot(ev.source)}${customHtml}</div>` +
     `<span class="le-edit-hint">✏️</span></td>`;
 }
 
@@ -1225,17 +1226,22 @@ function teaseCellHTML(def, remark, editMode, game, v, targetVer, teaseDate, ver
   // 日期倒计时（与 listEvCellHTML 算法一致）
   const cd = teaseDate ? diffDays(teaseDate, todayNoon()) : null;
   const cdTxt = cd === null ? '' : (cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd)));
-  const dateHtml = teaseDate
-    ? `<div class="le-cell-date" style="border:0!important;outline:0!important;box-shadow:none!important;text-decoration-line:none!important;text-decoration-style:none!important;text-decoration-color:transparent!important;text-decoration:none!important;border-bottom:0!important;background:none!important">${fmtDate(teaseDate)}</div><div class="muted" style="font-size:11px;border:0!important;outline:0!important;box-shadow:none!important;text-decoration-line:none!important;text-decoration-style:none!important;text-decoration-color:transparent!important;text-decoration:none!important;border-bottom:0!important;background:none!important">${cdTxt}</div>`
-    : `<div class="le-cell-date muted" style="border:0!important;outline:0!important;box-shadow:none!important;text-decoration-line:none!important;text-decoration-style:none!important;text-decoration-color:transparent!important;border-bottom:0!important">—</div>`;
+  // 日期行（日期+倒计时内联）+ 元数据行（圆点+标签并排）
+  const dateLine = teaseDate
+    ? `${fmtDate(teaseDate)}<span class="muted" style="font-size:11px;margin-left:4px">${cdTxt}</span>`
+    : '—';
   // 爆料列可点击编辑：修改目标版本的角色备注名 + 爆料事件日期
   if (!editMode) {
-    return `<td title="新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」">${dateHtml}${offsetSrcDot(teaseSource)}${tag}</td>`;
+    return `<td title="新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」">` +
+      `<div class="le-cell-date">${dateLine}</div>` +
+      `<div class="le-cell-meta">${offsetSrcDot(teaseSource)}${tag}</div></td>`;
   }
   return `<td class="le-editable" style="border:1px solid var(--border);border-bottom:0!important;outline:0!important;box-shadow:none!important" data-game="${game.id}" data-tenths="${v.tenths}"` +
     ` data-cell-type="tease" data-char-index="${ci}"` +
     (targetVer ? ` data-target-tenths="${targetVer.tenths}"` : '') +
-    ` title="点击编辑：新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」的备注名与日期">${dateHtml}${offsetSrcDot(teaseSource)}${tag}` +
+    ` title="点击编辑：新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」的备注名与日期">` +
+      `<div class="le-cell-date">${dateLine}</div>` +
+      `<div class="le-cell-meta">${offsetSrcDot(teaseSource)}${tag}</div>` +
     `<span class="le-edit-hint">✏️</span></td>`;
 }
 

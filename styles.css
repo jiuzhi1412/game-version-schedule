@@ -541,3 +541,12 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
   font-size: 11px;
   vertical-align: middle;
 }
+
+/* 单元格元数据行（圆点 + 备注标签并排） */
+.le-cell-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  min-height: 18px;
+}
