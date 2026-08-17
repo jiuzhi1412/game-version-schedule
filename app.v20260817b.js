@@ -3,7 +3,6 @@
  * 纯前端单页应用。数据存 localStorage，预留云端同步接口。
  * ========================================================================= */
 
-console.log('[GVS] 加载 app.v20260817b.js — 新角色爆料已按角色拆分（数量=每版角色数），每个子类直接显示对应角色卡池备注名');
 'use strict';
 
 /* ----------------------------- 事件类型定义 ----------------------------- */
@@ -1237,7 +1236,18 @@ function renderList() {
         const origKey = def._origKey || def.key;
         const color = eventColor(origKey, group.ci ?? idx);
         const hid = isDefHidden(def);
-        headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08${hid ? ';opacity:.35;text-decoration:line-through' : ''}">${escapeHtml(def.sub ? def.sub[idx] : def.name)}</th>`;
+        // _tease 事件：动态从 charNames 取对应角色的备注名作为列标题（绑定卡池角色名）
+        let cellText = def.sub ? def.sub[idx] : def.name;
+        if (def._tease && def.charIndex != null && game.charNames) {
+          const ci = def.charIndex;
+          // 遍历所有版本找该角色索引的备注名，取第一个非空的
+          let resolvedName = '';
+          for (const k in game.charNames) {
+            if (k.endsWith('|' + ci) && game.charNames[k]) { resolvedName = game.charNames[k]; break; }
+          }
+          if (resolvedName) cellText = resolvedName;
+        }
+        headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08${hid ? ';opacity:.35;text-decoration:line-through' : ''}">${escapeHtml(cellText)}</th>`;
       });
     });
     const head = `<tr>${headRow1}</tr>${headRow2 ? '<tr>' + headRow2 + '</tr>' : ''}`;
