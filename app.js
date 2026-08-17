@@ -674,18 +674,27 @@ function eventOffset(game, hk, defOff, tenths) {
 function offsetIsConfirmed(game, hk, tenths) {
   return !!(game && game.verEventOffsets && typeof game.verEventOffsets[tenths + '|' + hk] === 'number');
 }
-/** 偏移来源徽章（🟢你填的 / 🟡沿用上次 / 🔵基准 / ⚪默认） */
-function offsetSrcBadge(source) {
+/** 偏移来源标记（纯色小圆点，图例在控制栏） */
+function offsetSrcDot(source) {
   if (!source || source === 'confirmed') {
-    return `<span class="off-src off-confirmed" title="偏移来源：你亲手填的日期（确定的数据）">🟢你填</span>`;
+    return `<span class="off-dot off-dot-confirmed" title="你填的日期"></span>`;
   }
   if (source === 'inherited') {
-    return `<span class="off-src off-inherited" title="偏移来源：沿用你最近一次填的日期（未做平均，非猜测）">🟡沿用</span>`;
+    return `<span class="off-dot off-dot-inherited" title="沿用上次填的日期"></span>`;
   }
   if (source === 'base') {
-    return `<span class="off-src off-base" title="偏移来源：你在设置里配的全局基准">🔵基准</span>`;
+    return `<span class="off-dot off-dot-base" title="全局基准"></span>`;
   }
-  return `<span class="off-src off-default" title="偏移来源：默认值（代码写死，如爆料=33天）">⚪默认</span>`;
+  return `<span class="off-dot off-dot-default" title="默认值"></span>`;
+}
+/** 偏移来源图例 HTML（放在列表视图控制栏） */
+function offsetLegendHtml() {
+  return `<span class="off-legend" id="off-legend">` +
+    `<span class="off-dot off-dot-confirmed"></span><span class="muted" style="font-size:11px">你填</span>` +
+    `<span class="off-dot off-dot-inherited"></span><span class="muted" style="font-size:11px">沿用</span>` +
+    `<span class="off-dot off-dot-base"></span><span class="muted" style="font-size:11px">基准</span>` +
+    `<span class="off-dot off-dot-default"></span><span class="muted" style="font-size:11px">默认</span>` +
+    `</span>`;
 }
 /** 获取默认偏移量（不含逐版本覆盖，用于判断是否需要存储覆盖） */
 function getDefaultOffset(game, hk) {
@@ -1020,7 +1029,8 @@ function renderViewControls() {
           `<label class="vc-check" style="display:block;margin:4px 0;white-space:nowrap"><input type="checkbox" id="vc-only-confirmed" ${state.offsetOnlyConfirmed ? 'checked' : ''}> 只用我填的（关闭自动沿用）</label>` +
         `</div>` +
       `</span>` +
-      `<span class="muted">点游戏右侧“编辑”改周期/进位规则</span>`;
+      offsetLegendHtml() +
+      `<span class="muted">点游戏右侧"编辑"改周期/进位规则</span>`;
     bar.classList.remove('hidden');
     document.getElementById('vc-listpast').onchange = (e) => { state.listPast = Math.max(0, Math.min(30, Number(e.target.value) || 0)); saveAndRender(); };
     document.getElementById('vc-listcount').onchange = (e) => { state.listCount = Math.max(1, Math.min(30, Number(e.target.value) || 8)); saveAndRender(); };
@@ -1181,13 +1191,13 @@ function listEvCellHTML(game, v, ev, editMode) {
 
   if (!editMode) {
     return `<td class="${soonCls}" title="${escapeHtml(ev.title)}">${fmtDate(ev.date)}` +
-      `<div class="muted" style="font-size:11px">${cdTxt}</div>${offsetSrcBadge(ev.source)}${customHtml}</td>`;
+      `<div class="muted" style="font-size:11px">${cdTxt}</div>${offsetSrcDot(ev.source)}${customHtml}</td>`;
   }
   // 编辑模式：可点击编辑
   return `<td class="le-editable ${soonCls}" data-game="${game.id}" data-tenths="${v.tenths}"` +
     ` data-hk="${ev.historyKey}" data-ev-name="${escapeAttr(ev.name)}" title="点击编辑：${escapeHtml(ev.title)}">` +
     `<div class="le-cell-date">${fmtDate(ev.date)}</div>` +
-    `<div class="muted" style="font-size:11px">${cdTxt}</div>${offsetSrcBadge(ev.source)}${customHtml}` +
+    `<div class="muted" style="font-size:11px">${cdTxt}</div>${offsetSrcDot(ev.source)}${customHtml}` +
     `<span class="le-edit-hint">✏️</span></td>`;
 }
 
@@ -1220,12 +1230,12 @@ function teaseCellHTML(def, remark, editMode, game, v, targetVer, teaseDate, ver
     : `<div class="le-cell-date muted" style="border:0!important;outline:0!important;box-shadow:none!important;text-decoration-line:none!important;text-decoration-style:none!important;text-decoration-color:transparent!important;border-bottom:0!important">—</div>`;
   // 爆料列可点击编辑：修改目标版本的角色备注名 + 爆料事件日期
   if (!editMode) {
-    return `<td title="新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」">${dateHtml}${offsetSrcBadge(teaseSource)}${tag}</td>`;
+    return `<td title="新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」">${dateHtml}${offsetSrcDot(teaseSource)}${tag}</td>`;
   }
   return `<td class="le-editable" style="border:1px solid var(--border);border-bottom:0!important;outline:0!important;box-shadow:none!important" data-game="${game.id}" data-tenths="${v.tenths}"` +
     ` data-cell-type="tease" data-char-index="${ci}"` +
     (targetVer ? ` data-target-tenths="${targetVer.tenths}"` : '') +
-    ` title="点击编辑：新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」的备注名与日期">${dateHtml}${offsetSrcBadge(teaseSource)}${tag}` +
+    ` title="点击编辑：新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」的备注名与日期">${dateHtml}${offsetSrcDot(teaseSource)}${tag}` +
     `<span class="le-edit-hint">✏️</span></td>`;
 }
 
@@ -2234,7 +2244,7 @@ function openVersionModal(gameId, tenths, focusHk) {
       <span class="ev-name"><span class="chip-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${eventColor(ev.defKey, ev.charIndex ?? ev.sub)}"></span> ${escapeHtml(ev.name)}</span>
       <input type="text" class="m-title" data-tkey="${tkey}" placeholder="自定义名称" value="${escapeAttr(custom)}" style="max-width:120px">
       <input type="date" data-hk="${ev.historyKey}" data-defkey="${ev.defKey}" data-sub="${ev.sub}" value="${fmtDate(ev.date)}">
-      <span class="ev-offset">+${off}天</span>${offsetSrcBadge(ev.source)}
+      <span class="ev-offset">+${off}天</span>${offsetSrcDot(ev.source)}
     </div>`;
   });
   html += `</div>`;

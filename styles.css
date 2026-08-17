@@ -513,19 +513,31 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
   .cal-grid { grid-template-columns: repeat(7, minmax(92px, 1fr)); min-width: 660px; }
 }
 
-/* 偏移来源徽章（🟢你填 / 🟡沿用 / 🔵基准 / ⚪默认） */
-.off-src {
+/* 偏移来源小圆点（● 你填 / ● 沿用 / ● 基准 / ● 默认） */
+.off-dot {
   display: inline-block;
-  font-size: 10px;
-  line-height: 1.4;
-  padding: 0 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
   margin-left: 4px;
-  border-radius: 6px;
   vertical-align: middle;
-  white-space: nowrap;
-  opacity: .85;
+  flex-shrink: 0;
 }
-.off-confirmed { background: #e6f7ed; color: #137a43; }
-.off-inherited { background: #fff6e0; color: #9a6b00; }
-.off-base { background: #e8f0ff; color: #2b5fb3; }
-.off-default { background: #eef1f5; color: #8a93a3; }
+.off-dot-confirmed { background: #22c55e; }
+.off-dot-inherited { background: #eab308; }
+.off-dot-base { background: #3b82f6; }
+.off-dot-default { background: #d1d5db; }
+
+/* 偏移来源图例（列表视图控制栏） */
+.off-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 11px;
+  vertical-align: middle;
+}
