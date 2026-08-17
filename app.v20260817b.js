@@ -1147,12 +1147,10 @@ function renderList() {
     const currentVer = pastN.length > 0 ? pastN[pastN.length - 1] : null;  // 最近的一个 = 当前运行中版本
     const olderVersions = pastN.slice(0, -1);  // 排除当前版本的更早历史
     const futureN = future.slice(0, state.listCount || 8);
-    // 新角色爆料绑定的目标版本 = 当前运行版本 + teaseVersionOffset（默认下1版本）
-    // 偏移超出未来版本范围时回退到当前版本
-    let targetVer = currentVer;
-    const off = state.teaseVersionOffset || 0;
-    if (off > 0 && futureN.length >= off) targetVer = futureN[off - 1];
-    else if (off > 0) targetVer = currentVer; // 未来版本不足，回退
+    // 爆料偏移量（用于每行独立计算目标版本）
+    const teaseOff = state.teaseVersionOffset || 0;
+    // 完整排序后的版本列表（含过去+未来），供每行计算各自的爆料目标版本
+    const allSorted = sorted; // 已按日期正序
 
     // 该游戏可见的事件列（全局 + 按游戏隐藏过滤后）
     const gEvts = gameActiveEvents(game);
@@ -1213,13 +1211,18 @@ function renderList() {
         const ev = lookupEv(def, idx);
         if (ev) html += listEvCellHTML(game, v, ev, editMode);
       });
-      // 2. 新角色爆料列：显示 targetVer（当前版本+偏移）对应角色索引的备注名，仅备注名
+      // 2. 新角色爆料列：每行独立计算目标版本（该行版本 + 偏移），显示对应角色备注名
       teaseGroupDefs.forEach(group => {
         group.cols.forEach(({ def, idx }) => {
           const ci = def.charIndex != null ? def.charIndex : idx;
-          const remark = (targetVer && targetVer.tenths != null && game.charNames)
-            ? (game.charNames[String(targetVer.tenths) + '|' + ci] || '') : '';
-          html += teaseCellHTML(def, remark, editMode, game, v, targetVer);
+          // 每行独立计算：从 allSorted 找到当前行 v 的索引，往后偏移 teaseOff 个版本
+          const vIdx = allSorted.findIndex(sv => sv.tenths === v.tenths);
+          const rowTarget = (vIdx >= 0 && teaseOff > 0 && allSorted[vIdx + teaseOff])
+            ? allSorted[vIdx + teaseOff]
+            : (teaseOff <= 0 ? v : null); // 偏移=0或负数用自身，超出范围则 null
+          const remark = (rowTarget && game.charNames)
+            ? (game.charNames[String(rowTarget.tenths) + '|' + ci] || '') : '';
+          html += teaseCellHTML(def, remark, editMode, game, v, rowTarget);
         });
       });
       // 3. 角色分组列（每个角色的卡池/预告/PV 按组内顺序）
