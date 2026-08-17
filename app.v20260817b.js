@@ -1139,10 +1139,13 @@ function renderList() {
       const evMap = {};
       v.events.forEach(ev => { evMap[ev.historyKey] = ev; });
       // 与表头遍历逻辑完全一致：gEvts → offsets → origKey+charIndex 拼接 key → 从 evMap 取单元格
+      // ⚠️ historyKey 拼接规则必须与 genGameVersions 第685行完全一致：
+      //    仅当 offsets.length>1 或 charIndex!=null 时才加 _{suffix} 后缀
       gEvts.forEach(def => {
         def.offsets.forEach((_, idx) => {
           const origKey = def._origKey || def.key;
-          const hk = origKey + '_' + (def.charIndex != null ? def.charIndex : idx);
+          const needsSuffix = def.offsets.length > 1 || def.charIndex != null;
+          const hk = origKey + (needsSuffix ? '_' + (def.charIndex != null ? def.charIndex : idx) : '');
           const ev = evMap[hk];
           if (!ev) return; // 该事件在此版本不存在或被隐藏
           html += listEvCellHTML(game, v, ev, editMode);
