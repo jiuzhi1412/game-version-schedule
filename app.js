@@ -1401,8 +1401,17 @@ function renderList() {
         const hasData = !!gEvtLookup[col.colId];
         let cell;
         if (!hasData) {
-          // 该游戏没有此事件 → 空白格子（保持列对齐）
-          cell = '<td></td>';
+          // 该游戏没有此事件 → 编辑模式显示可点击占位（保持列对齐），普通模式空白
+          if (!editMode) {
+            cell = '<td></td>';
+          } else {
+            const origKey = col.def._origKey || col.def.key;
+            const cellText = col.def.sub ? col.def.sub[col.idx] : col.def.name;
+            cell = `<td class="le-editable vt-empty" data-game="${game.id}" data-tenths="${v.tenths}"` +
+              ` data-hk="${escapeAttr(origKey + (col.def.charIndex != null ? '_' + col.def.charIndex : (col.def.offsets.length > 1 ? '_' + col.idx : '')))}"` +
+              ` data-ev-name="${escapeAttr(cellText)}" title="点击填写：${escapeAttr(cellText)}">` +
+              `<span class="le-add-hint">＋ 填写</span></td>`;
+          }
         } else if (col.type === 'tease') {
           const ci = col.def.charIndex != null ? col.def.charIndex : col.idx;
           const vIdx = allSorted.findIndex(sv => sv.tenths === v.tenths);
@@ -1422,7 +1431,18 @@ function renderList() {
           cell = teaseCellHTML(col.def, remark, editMode, game, v, rowTarget, teaseDate, verHidden, teaseEv ? teaseEv.source : null);
         } else {
           const ev = lookupEv(col.def, col.idx);
-          cell = ev ? listEvCellHTML(game, v, ev, editMode) : '<td></td>';
+          if (ev) {
+            cell = listEvCellHTML(game, v, ev, editMode);
+          } else if (!editMode) {
+            cell = '<td></td>';
+          } else {
+            const origKey = col.def._origKey || col.def.key;
+            const cellText = col.def.sub ? col.def.sub[col.idx] : col.def.name;
+            cell = `<td class="le-editable vt-empty" data-game="${game.id}" data-tenths="${v.tenths}"` +
+              ` data-hk="${escapeAttr(origKey + (col.def.charIndex != null ? '_' + col.def.charIndex : (col.def.offsets.length > 1 ? '_' + col.idx : '')))}"` +
+              ` data-ev-name="${escapeAttr(cellText)}" title="点击填写：${escapeAttr(cellText)}">` +
+              `<span class="le-add-hint">＋ 填写</span></td>`;
+          }
         }
         html += cell.replace(/^<td/, `<td data-col-key="${escapeAttr(col.colId)}"`);
       });
