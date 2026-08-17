@@ -516,7 +516,7 @@ function defaultState() {
     icon: { type: 'letter', value: name[0], color },
     baseCycleDays: DEFAULT_CYCLE,
     anchorTenths, anchorDate, minorMax: 9,
-    eventHistory: {}, baseOffsets: {}, eventTitles: {}, versionDurations: {}, verNotes: {}, verEventOffsets: {}, verUpdateDates: {}, hiddenEventKeys: [], verHiddenEvents: {}
+    eventHistory: {}, baseOffsets: {}, eventTitles: {}, versionDurations: {}, verNotes: {}, verEventOffsets: {}, verUpdateDates: {}, hiddenEventKeys: [], verHiddenEvents: {}, colDisplayNames: {}
   });
   const games = [
     g('原神', 'Genshin Impact', '#22c55e', 50, '2024-08-28'),
@@ -555,6 +555,7 @@ function migrateGame(g) {
   if (!g.hiddenEventKeys) g.hiddenEventKeys = [];
   if (!g.verHiddenEvents) g.verHiddenEvents = {};
   if (!g.charNames) g.charNames = {}; // key: "tenths|charIndex" → 角色名，如 "70|0": "奥黛塔"
+  if (!g.colDisplayNames) g.colDisplayNames = {}; // 表头自定义名覆盖：key=groupId 或 colId → 显示名（独立于备注）
   if (typeof g.charCount !== 'number') g.charCount = 2;
 }
 
@@ -1117,8 +1118,8 @@ function listEvCellHTML(game, v, ev, editMode) {
     `<span class="le-edit-hint">✏️</span></td>`;
 }
 
-/** 新角色爆料列单元格：显示绑定目标版本的角色备注名（可点击编辑） */
-function teaseCellHTML(def, remark, editMode, game, v, targetVer) {
+/** 新角色爆料列单元格：显示绑定目标版本的角色备注名 + 爆料事件日期（可点击编辑） */
+function teaseCellHTML(def, remark, editMode, game, v, targetVer, teaseDate) {
   const ci = def.charIndex != null ? def.charIndex : 0;
   const color = eventColor('char_tease', ci);
   const hidden = !!def._hidden;
@@ -1131,11 +1132,14 @@ function teaseCellHTML(def, remark, editMode, game, v, targetVer) {
   const tag = remark
     ? `<div class="ev-char-tag" style="background:${color}18;color:${color};border:1px solid ${color}44">${escapeHtml(remark)}</div>`
     : `<span class="muted">—</span>`;
-  // 爆料列可点击编辑：修改目标版本的角色备注名
+  const dateHtml = teaseDate
+    ? `<div class="le-cell-date">${fmtDate(teaseDate)}</div>`
+    : `<div class="le-cell-date muted">—</div>`;
+  // 爆料列可点击编辑：修改目标版本的角色备注名 + 爆料事件日期
   return `<td class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}"` +
     ` data-cell-type="tease" data-char-index="${ci}"` +
     (targetVer ? ` data-target-tenths="${targetVer.tenths}"` : '') +
-    ` title="点击编辑：新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」的备注名">${tag}` +
+    ` title="点击编辑：新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」的备注名与日期">${dateHtml}${tag}` +
     `<span class="le-edit-hint">✏️</span></td>`;
 }
 
@@ -1266,7 +1270,13 @@ function renderList() {
             : (teaseOff <= 0 ? v : null);
           const remark = (rowTarget && game.charNames)
             ? (game.charNames[String(rowTarget.tenths) + '|' + ci] || '') : '';
-          cell = teaseCellHTML(col.def, remark, editMode, game, v, rowTarget);
+          // 爆料事件自身日期 = 绑定未来版本的 char_tease 事件日期（= 该版本更新日 + 偏移），与其他事件列算法一致
+          let teaseDate = null;
+          if (rowTarget) {
+            const teaseEv = rowTarget.events.find(e => e.historyKey === ('char_tease_' + ci));
+            teaseDate = teaseEv ? teaseEv.date : addDays(rowTarget.updateDate, TEASE_OFF);
+          }
+          cell = teaseCellHTML(col.def, remark, editMode, game, v, rowTarget, teaseDate);
         } else {
           const ev = lookupEv(col.def, col.idx);
           cell = ev ? listEvCellHTML(game, v, ev, editMode) : '<td></td>';
@@ -1329,10 +1339,16 @@ function renderList() {
       if (g.singleton) {
         const c = g.cols[0];
         const origKey = c.def._origKey || c.def.key;
-        headRow1 += `<th class="le-group-drag" data-col-key="${escapeAttr(g.id)}" rowspan="2" style="${hid ? 'opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${eventColor(origKey, c.idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(c.def.name + (c.def.sub ? c.def.sub[c.idx] : ''))}</th>`;
+        const dName = (game.colDisplayNames && game.colDisplayNames[g.id]) || (c.def.name + (c.def.sub ? c.def.sub[c.idx] : ''));
+        const titleCls = editMode ? 'le-group-drag le-col-title' : 'le-group-drag';
+        const titleData = editMode ? ` data-game="${game.id}" data-rename-key="${escapeAttr(g.id)}" data-rename-kind="group"` : '';
+        headRow1 += `<th class="${titleCls}" data-col-key="${escapeAttr(g.id)}" rowspan="2" style="${hid ? 'opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}${titleData}>${grab}<span class="chip-dot" style="background:${eventColor(origKey, c.idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(dName)}</th>`;
       } else {
         const colSpan = g.cols.length;
-        headRow1 += `<th colspan="${colSpan}" class="char-group-head le-group-drag" data-col-key="${escapeAttr(g.id)}" style="background:${g.color}22;color:${g.color};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${g.color}44${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${g.color};width:6px;height:6px"></span> ${escapeHtml(g.label)}</th>`;
+        const dName = (game.colDisplayNames && game.colDisplayNames[g.id]) || g.label;
+        const titleCls = editMode ? 'char-group-head le-group-drag le-col-title' : 'char-group-head le-group-drag';
+        const titleData = editMode ? ` data-game="${game.id}" data-rename-key="${escapeAttr(g.id)}" data-rename-kind="group"` : '';
+        headRow1 += `<th colspan="${colSpan}" class="${titleCls}" data-col-key="${escapeAttr(g.id)}" style="background:${g.color}22;color:${g.color};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${g.color}44${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}${titleData}>${grab}<span class="chip-dot" style="background:${g.color};width:6px;height:6px"></span> ${escapeHtml(dName)}</th>`;
       }
     });
     // 第二行：子列名（仅非单列的组才占第二行；编辑模式可拖拽，但只能在所属组内移动）
@@ -1344,10 +1360,11 @@ function renderList() {
         const color = eventColor(origKey, col.groupCi ?? col.idx);
         const hid = isDefHidden(col.def);
         const cellText = col.def.sub ? col.def.sub[col.idx] : col.def.name;
+        const dName = (game.colDisplayNames && game.colDisplayNames[col.colId]) || cellText;
         const dragAttrs = editMode
-          ? ` draggable="true" data-col-id="${escapeAttr(col.colId)}" data-group-id="${escapeAttr(g.id)}" data-col-key="${escapeAttr(col.colId)}" class="le-col-drag"`
+          ? ` draggable="true" data-col-id="${escapeAttr(col.colId)}" data-group-id="${escapeAttr(g.id)}" data-col-key="${escapeAttr(col.colId)}" class="le-col-drag le-col-title" data-game="${game.id}" data-rename-key="${escapeAttr(col.colId)}" data-rename-kind="col"`
           : '';
-        headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${dragAttrs}>${editMode ? '<span class="set-ev-grab" style="font-size:9px;margin-right:2px;opacity:.5">⠿</span>' : ''}${escapeHtml(cellText)}</th>`;
+        headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${dragAttrs}>${editMode ? '<span class="set-ev-grab" style="font-size:9px;margin-right:2px;opacity:.5">⠿</span>' : ''}${escapeHtml(dName)}</th>`;
       });
     });
     const head = `<tr>${headRow1}</tr>${headRow2 ? '<tr>' + headRow2 + '</tr>' : ''}`;
@@ -1388,6 +1405,13 @@ function bindListEditCells() {
       const cellType = td.dataset.cellType || 'ev';
       const hk = td.dataset.hk || '';
       openListCellEditor(gameId, tenths, cellType, hk, td);
+    });
+  });
+  // 表头大项/小项改名（编辑模式）
+  document.querySelectorAll('#view-list .le-col-title').forEach(th => {
+    th.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openColRenameEditor(th.dataset.game, th.dataset.renameKey, th.dataset.renameKind, th);
     });
   });
 }
@@ -1631,17 +1655,28 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
         <button class="primary" onclick="saveListUpdateDate('${gameId}', ${tenths})">保存</button>
       </div>`;
   } else if (cellType === 'tease') {
-    // 新角色爆料编辑：修改目标版本的角色备注名
+    // 新角色爆料编辑：修改目标版本的角色备注名 + 爆料事件日期
     const ci = Number(cellEl.dataset.charIndex || 0);
     const targetTenths = cellEl.dataset.targetTenths ? Number(cellEl.dataset.targetTenths) : null;
     const targetVer = targetTenths != null ? genGameVersions(game).find(v => v.tenths === targetTenths) : null;
     const targetLabel = targetVer ? targetVer.label : '（目标版本不存在）';
     const cnKey = String(targetTenths) + '|' + ci;
     const currentName = (targetTenths != null && game.charNames && game.charNames[cnKey]) || '';
+    // 当前爆料事件日期：优先用 verEventOffsets 覆盖，否则目标版本更新日 + TEASE_OFF
+    let currentDateStr = '';
+    if (targetVer) {
+      const teaseEv = targetVer.events.find(e => e.historyKey === ('char_tease_' + ci));
+      const d = teaseEv ? teaseEv.date : addDays(targetVer.updateDate, TEASE_OFF);
+      currentDateStr = fmtDate(d);
+    }
     const CHARS = ['一', '二', '三', '四', '五', '六'];
     editor.innerHTML = `
       <div class="le-editor-title"><span class="chip-dot" style="background:${eventColor('char_tease', ci)};display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle"></span> 新角色爆料·角色${CHARS[ci] || (ci+1)} → 绑定到「${escapeHtml(targetLabel)}」</div>
       <div class="muted" style="font-size:11px;margin-bottom:8px">💡 此处填写的名称会显示在该游戏所有行的「新角色爆料·角色${CHARS[ci] || (ci+1)}」列中</div>
+      <div class="field">
+        <label>事件日期</label>
+        <input type="date" id="le-tease-date" value="${currentDateStr}">
+      </div>
       <div class="field">
         <label>角色备注名</label>
         <input type="text" id="le-tease-name" placeholder="如：奥黛塔、薇斯娜" value="${escapeHtml(currentName)}">
@@ -1716,6 +1751,49 @@ function closeListCellEditor() {
   _leActiveCell = null;
   if (_leMousedownHandler) document.removeEventListener('mousedown', _leMousedownHandler, true);
 }
+
+/** 打开列表表头（大项/小项）改名编辑器 */
+function openColRenameEditor(gameId, key, kind, thEl) {
+  closeListCellEditor();
+  const game = state.games.find(g => g.id === gameId);
+  if (!game) return;
+  if (!game.colDisplayNames) game.colDisplayNames = {};
+  const current = game.colDisplayNames[key] || '';
+  const kindLabel = kind === 'group' ? '大项（分组标题）' : '小项（子列名）';
+  const editor = document.createElement('div');
+  editor.className = 'le-inline-editor';
+  editor.innerHTML = `
+    <div class="le-editor-title">✏️ 重命名${kindLabel}</div>
+    <div class="muted" style="font-size:11px;margin-bottom:8px">留空则恢复默认名称</div>
+    <div class="field">
+      <label>显示名称</label>
+      <input type="text" id="le-col-name" placeholder="默认名" value="${escapeHtml(current)}">
+    </div>
+    <div class="modal-actions">
+      <button onclick="closeListCellEditor()">取消</button>
+      <button class="primary" onclick="saveColRename('${gameId}', '${escapeAttr(key)}', '${kind}')">保存</button>
+    </div>`;
+  const rect = thEl.getBoundingClientRect();
+  editor.style.position = 'fixed';
+  editor.style.left = Math.min(rect.left, window.innerWidth - 320) + 'px';
+  editor.style.top = Math.min(rect.bottom + 4, window.innerHeight - 160) + 'px';
+  editor.style.zIndex = '200';
+  document.body.appendChild(editor);
+  setTimeout(() => { const inp = document.getElementById('le-col-name'); if (inp) inp.focus(); }, 30);
+}
+
+/** 保存列表表头改名 */
+window.saveColRename = function(gameId, key, kind) {
+  const game = state.games.find(g => g.id === gameId);
+  if (!game) return;
+  if (!game.colDisplayNames) game.colDisplayNames = {};
+  const val = document.getElementById('le-col-name').value.trim();
+  if (val) game.colDisplayNames[key] = val;
+  else delete game.colDisplayNames[key];
+  closeListCellEditor();
+  saveAndRender();
+  toast(val ? '已重命名' : '已恢复默认名称');
+};
 
 /** 保存版本备注编辑 */
 window.saveListVerEdit = function(gameId, tenths) {
@@ -1830,6 +1908,7 @@ window.saveListEvEdit = function(gameId, tenths, hk) {
 window.saveListTeaseEdit = function(gameId, targetTenths, charIndex) {
   const game = state.games.find(g => g.id === gameId);
   if (!game) return;
+  // 备注名
   const nameInput = document.getElementById('le-tease-name');
   const nameVal = nameInput ? nameInput.value.trim() : '';
   const cnKey = String(targetTenths) + '|' + charIndex;
@@ -1839,9 +1918,21 @@ window.saveListTeaseEdit = function(gameId, targetTenths, charIndex) {
   } else {
     delete game.charNames[cnKey];
   }
+  // 爆料事件日期（存相对目标版本更新日的偏移，复用 verEventOffsets 机制）
+  const dateInput = document.getElementById('le-tease-date');
+  const dateStr = dateInput ? dateInput.value : '';
+  if (dateStr) {
+    const targetVer = genGameVersions(game).find(v => v.tenths === targetTenths);
+    if (targetVer) {
+      if (!game.verEventOffsets) game.verEventOffsets = {};
+      const off = diffDays(parseDate(dateStr), targetVer.updateDate);
+      const hk = 'char_tease_' + charIndex;
+      game.verEventOffsets[String(targetTenths) + '|' + hk] = off;
+    }
+  }
   closeListCellEditor();
   saveAndRender();
-  toast(nameVal ? '已保存备注名' : '已清除备注名');
+  toast(nameVal ? '已保存备注名与日期' : '已保存日期');
 };
 
 /* ----------------------------- 列设置面板（按游戏隐藏/显示事件列） ----------------------------- */

@@ -306,13 +306,15 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 }
 .le-group-drag { cursor: grab; user-select: none; transition: background 0.15s, transform 0.12s ease, box-shadow 0.12s ease; }
 .le-group-drag:active { cursor: grabbing; }
+/* 编辑模式下表头可点击改名 */
+.le-col-title { cursor: text !important; }
+.le-col-title:hover { text-decoration: underline dotted; }
 /* 组插入线样式见上方统一规则（.le-group-drag.drag-over-before / -after） */
 /* 拖起浮起效果：源单元格被「拎起」 */
 .le-col-drag.le-dragging, .le-group-drag.le-dragging {
   transform: scale(1.06) rotate(-1.2deg);
   box-shadow: 0 10px 22px rgba(0,0,0,0.30);
-  opacity: 0.92;
-  z-index: 20;
+  opacity: 0.92;  z-index: 20;
   position: relative;
 }
 /* FLIP 落位过渡：整列滑入新位置 */
