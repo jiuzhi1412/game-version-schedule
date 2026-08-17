@@ -398,13 +398,13 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 .up-main { font-size: 12px; margin-top: 3px; display: flex; align-items: center; gap: 6px; }
 .up-main .chip-ico { width: 18px; height: 18px; border-radius: 50%; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; }
 
-/* 版本块内容 + 事件标签 */
-.tl-version { top: 10px; height: 38px; }
+/* 版本块内容 + 事件标签 —— 垂直居中对齐左侧标签 */
+.tl-version { top: 33px; height: 38px; }
 .tl-vname { font-weight: 700; }
 .tl-vlabel { opacity: .9; font-size: 11px; }
-.tl-event-mark { top: 8px; height: 40px; }
+.tl-event-mark { top: 32px; height: 40px; }
 .tl-evt-tag {
-  position: absolute; top: 54px; transform: translateX(-50%);
+  position: absolute; top: 76px; transform: translateX(-50%);
   font-size: 10px; line-height: 1; padding: 3px 5px; border-radius: 5px; white-space: nowrap;
   background: #fff; color: var(--c); border: 1px solid var(--c); font-weight: 600; cursor: pointer;
   box-shadow: 0 1px 2px rgba(15,23,42,.12);
