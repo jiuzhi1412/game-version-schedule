@@ -769,7 +769,8 @@ function genGameVersions(game, optRangeStart, optRangeEnd) {
 /**
  * 为每个事件标注偏移来源，并按「最近确认值」回填未填写版本的偏移。
  * 来源优先级：confirmed(你填的) > inherited(沿用最近一次你填的) > base(全局基准) > default(默认)
- * 开启 state.offsetOnlyConfirmed 时跳过 inherited，未填版本一律用 base/default。
+ * 反转语义：无论 state.offsetOnlyConfirmed 开关是否开启，只要有你填过的参考数据就自动沿用（黄点填充真实日期）。
+ * 仅当开关开启且某事件「完全没有任何你填过的参考数据」时，才标为 noRef（列表视图留空，不显示基准/默认推算日期）。
  * @param {Array} versions genGameVersions 已生成的版本数组（按时间无序，本函数内部排序）
  */
 function resolveInherited(game, versions) {
@@ -787,30 +788,35 @@ function resolveInherited(game, versions) {
 
   // 诊断：打印找到的已确认数据
   const confKeys = Object.keys(conf);
-  const stats = { confirmed: 0, inherited: 0, base: 0, default: 0 };
+  const stats = { confirmed: 0, inherited: 0, base: 0, default: 0, empty: 0 };
   if (confKeys.length) {
     console.log(`[GVS] 🔍 ${game.name} 偏移继承：找到 ${confKeys.length} 个事件有确认值`, confKeys.map(k => `${k}(${conf[k].length}个)`).join(', '), 'onlyConfirmed=', onlyConfirmed);
   }
 
   versions.forEach(v => v.events.forEach(ev => {
-    if (offsetIsConfirmed(game, ev.historyKey, v.tenths)) { ev.source = 'confirmed'; stats.confirmed++; return; }
+    if (offsetIsConfirmed(game, ev.historyKey, v.tenths)) { ev.source = 'confirmed'; ev.noRef = false; stats.confirmed++; return; }
     const arr = conf[ev.historyKey];
-    if (arr && arr.length && !onlyConfirmed) {
+    // 反转语义：只要有你填过的参考数据，无论开关都自动沿用（填黄点 + 真实日期）
+    if (arr && arr.length) {
       // 找时间上最近的已确认版本
       let best = arr[0], bd = Math.abs(arr[0].ms - v.updateDate.getTime());
       for (const c of arr) { const d = Math.abs(c.ms - v.updateDate.getTime()); if (d < bd) { bd = d; best = c; } }
       ev.offset = best.off;
       ev.date = addDays(v.updateDate, best.off);
       ev.source = 'inherited';
+      ev.noRef = false;
       stats.inherited++;
       return;
     }
     const bo = game.baseOffsets && game.baseOffsets[ev.historyKey];
-    if (typeof bo === 'number') { ev.source = 'base'; stats.base++; return; }
+    if (typeof bo === 'number' && !onlyConfirmed) { ev.source = 'base'; ev.noRef = false; stats.base++; return; }
+    // 开关开启且无任何你填过的参考数据：标为未填（列表视图留空，不显示基准/默认推算日期）
     ev.source = 'default';
+    ev.noRef = onlyConfirmed;
     stats.default++;
+    if (onlyConfirmed) stats.empty++;
   }));
-  console.log(`[GVS] 📊 ${game.name} 偏移来源统计：确认${stats.confirmed} 沿用${stats.inherited} 基准${stats.base} 默认${stats.default}`);
+  console.log(`[GVS] 📊 ${game.name} 偏移来源统计：确认${stats.confirmed} 沿用${stats.inherited} 基准${stats.base} 默认${stats.default}` + (onlyConfirmed ? ` 留空${stats.empty}` : ''));
 }
 
 function collectEvents() {
@@ -1038,7 +1044,7 @@ function renderViewControls() {
       `<span class="dd" id="offset-dd"><button class="vc-btn" id="vc-offset-btn" style="margin-left:8px">偏移 ▾</button>` +
         `<div class="dd-menu hidden" id="offset-dd-menu">` +
           `<button type="button" class="ghost" id="vc-calc-offset" style="display:block;width:100%;text-align:left;margin:2px 0">🧮 计算偏移</button>` +
-          `<label class="vc-check" style="display:block;margin:4px 0;white-space:nowrap"><input type="checkbox" id="vc-only-confirmed" ${state.offsetOnlyConfirmed ? 'checked' : ''}> 只用我填的（关闭自动沿用）</label>` +
+          `<label class="vc-check" style="display:block;margin:4px 0;white-space:nowrap"><input type="checkbox" id="vc-only-confirmed" ${state.offsetOnlyConfirmed ? 'checked' : ''}> 只用我填的（无参考数据的格子留空）</label>` +
         `</div>` +
       `</span>` +
       offsetLegendHtml() +
@@ -1170,10 +1176,13 @@ function startResize(gameId, tenths, e) {
 /* ----------------------------- 列表视图（自动计算的后继版本日程） ----------------------------- */
 /** 生成列表视图中单个事件单元格的 HTML */
 function listEvCellHTML(game, v, ev, editMode) {
-  const cd = diffDays(ev.date, todayNoon());
-  const cdTxt = cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd));
-  const isSoon = cd >= 0 && cd <= (state.leadDays || 3);
-  const soonCls = isSoon ? 'soon' : '';
+  const cd = (ev.date && !ev.noRef) ? diffDays(ev.date, todayNoon()) : null;
+  const cdTxt = cd === null ? '' : (cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd)));
+  const soonCls = (ev.date && !ev.noRef && cd >= 0 && cd <= (state.leadDays || 3)) ? 'soon' : '';
+  // 开关开启且无任何你填过的参考数据：列表视图留空（不显示基准/默认推算日期）
+  const dateHtml = ev.noRef
+    ? '<span class="muted">— 未填</span>'
+    : `${fmtDate(ev.date)}<span class="muted" style="font-size:11px;margin-left:4px">${cdTxt}</span>`;
   // 仅动态生成的角色事件（带 charIndex）才显示角色名标签，char_tease 等静态事件不算
   const isDynamicChar = ev.charIndex != null;
   // 角色事件：优先从 charNames（本版本该角色通用）取角色名；普通事件：用 eventTitles
@@ -1203,13 +1212,13 @@ function listEvCellHTML(game, v, ev, editMode) {
 
   if (!editMode) {
     return `<td class="${soonCls}" title="${escapeHtml(ev.title)}">` +
-      `<div class="le-cell-date">${fmtDate(ev.date)}<span class="muted" style="font-size:11px;margin-left:4px">${cdTxt}</span></div>` +
+      `<div class="le-cell-date">${dateHtml}</div>` +
       `<div class="le-cell-meta">${offsetSrcDot(ev.source)}${customHtml}</div></td>`;
   }
   // 编辑模式：可点击编辑
   return `<td class="le-editable ${soonCls}" data-game="${game.id}" data-tenths="${v.tenths}"` +
     ` data-hk="${ev.historyKey}" data-ev-name="${escapeAttr(ev.name)}" title="点击编辑：${escapeHtml(ev.title)}">` +
-    `<div class="le-cell-date">${fmtDate(ev.date)}<span class="muted" style="font-size:11px;margin-left:4px">${cdTxt}</span></div>` +
+    `<div class="le-cell-date">${dateHtml}</div>` +
     `<div class="le-cell-meta">${offsetSrcDot(ev.source)}${customHtml}</div>` +
     `<span class="le-edit-hint">✏️</span></td>`;
 }
@@ -2809,7 +2818,7 @@ function highlightChangedCells(oldSnap) {
  */
 function showOffsetSummary(optGameId) {
   const only = state.offsetOnlyConfirmed
-    ? '当前模式：<b>只用我填的</b>（未填版本只用默认偏移，不自动沿用）'
+    ? '当前模式：<b>只用我填的</b>（无任何你填过数据的版本留空，不显示基准/默认推算日期）'
     : '当前模式：未填版本<b>沿用你最近填的日期</b>（不做平均）';
 
   // 构建单个游戏的偏移卡片 HTML
