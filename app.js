@@ -1496,7 +1496,8 @@ function renderList() {
     html += `<div class="list-game ${editMode ? 'le-mode' : ''}" data-game-id="${game.id}"><div class="list-game-title">${gameIconHTML(game, 'icon')} <b>${escapeHtml(game.name)}</b>` +
       `<span class="muted">基础 ${game.baseCycleDays}天 · 小版本上限 ${game.minorMax} · 显示过去 ${state.listPast || 2} / 未来 ${state.listCount || 8} 个版本</span>` +
       `${editBtn}${colBtn}${hiddenHint}` +
-      `<button class="ghost" style="margin-left:auto" onclick="openGameModal('${game.id}')">编辑游戏</button></div>` +
+      `<button class="ghost" style="margin-left:auto;font-size:12px" onclick="showOffsetSummary('${game.id}')">🧮 偏移</button>` +
+      `<button class="ghost" onclick="openGameModal('${game.id}')">编辑游戏</button></div>` +
       `<div class="calendar-scroll"><table class="ver-table ${editMode ? 'le-table' : ''}"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
   });
   host.innerHTML = html;
@@ -2711,24 +2712,25 @@ function showModal() {
 }
 function hideModal() { document.getElementById('modal-mask').classList.remove('show'); }
 
-/** 偏移计算汇总：按游戏独立展示每个游戏的偏移来源分布 */
-function showOffsetSummary() {
+/**
+ * 偏移计算汇总
+ * @param {string} [optGameId] - 传入游戏 ID 时只显示该游戏的独立计算卡片；不传则显示全部游戏汇总
+ */
+function showOffsetSummary(optGameId) {
   const only = state.offsetOnlyConfirmed
     ? '当前模式：<b>只用我填的</b>（未填版本只用默认偏移，不自动沿用）'
     : '当前模式：未填版本<b>沿用你最近填的日期</b>（不做平均）';
-  const cards = [];
-  let gTotal = 0, gConfirmed = 0, gInherited = 0, gBase = 0, gDef = 0;
-  state.games.filter(g => visibleGames[g.id] !== false).forEach(game => {
+
+  // 构建单个游戏的偏移卡片 HTML
+  function buildGameCard(game) {
     const vers = genGameVersions(game);
     let gc = 0, gi = 0, gb = 0, gd = 0;
-    const evDetails = []; // 按事件名统计
+    const evDetails = [];
     vers.forEach(v => v.events.forEach(ev => {
-      gTotal++;
-      if (ev.source === 'confirmed') { gConfirmed++; gc++; }
-      else if (ev.source === 'inherited') { gInherited++; gi++; }
-      else if (ev.source === 'base') { gBase++; gb++; }
-      else { gDef++; gd++; }
-      // 收集事件级详情
+      if (ev.source === 'confirmed') gc++;
+      else if (ev.source === 'inherited') gi++;
+      else if (ev.source === 'base') gb++;
+      else gd++;
       const ek = ev.name;
       let d = evDetails.find(e => e.n === ek);
       if (!d) { d = { n: ek, c: 0, i: 0, b: 0, dd: 0 }; evDetails.push(d); }
@@ -2737,32 +2739,61 @@ function showOffsetSummary() {
       else if (ev.source === 'base') d.b++;
       else d.dd++;
     }));
-    if (gc + gi + gb + gd > 0) {
-      // 每个事件一行小字
-      const evLines = evDetails.map(d =>
-        `<div style="font-size:11px;color:var(--text-muted);padding:1px 0;padding-left:12px">· ${escapeHtml(d.n)}：🟢${d.c} 🟡${d.i} 🔵${d.b} ⚪${d.dd}</div>`
-      ).join('');
-      cards.push(
-        `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--bg-card,fff)">` +
-        `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">` +
-        `<b style="font-size:14px">${escapeHtml(game.name)}</b>` +
-        `<span style="font-size:12px">共 <b>${gc+gi+gb+gd}</b> 个偏移点</span>` +
-        `</div>` +
-        `<div style="font-size:13px">🟢你手动填写 <b>${gc}</b> · 🟡自动沿用 <b>${gi}</b> · 🔵全局基准 <b>${gb}</b> · ⚪系统默认 <b>${gd}</b></div>` +
-        (evLines ? `<div style="margin-top:6px;border-top:1px dashed var(--border);padding-top:4px">${evLines}</div>` : '') +
-        `</div>`
-      );
-    }
-  });
-  const body =
-    `<p class="muted" style="font-size:12px">${only}</p>` +
-    `<div style="max-height:360px;overflow:auto;margin-top:6px">${cards.join('') || '<p class="muted">暂无可见游戏</p>'}</div>` +
-    `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:12px" class="muted">` +
-    `全部合计：${gTotal} 个 · 🟢${gConfirmed} · 🟡${gInherited} · 🔵${gBase} · ⚪${gDef}` +
-    `</div>`;
-  document.getElementById('modal-title').textContent = '🧮 偏移计算汇总';
+    const total = gc + gi + gb + gd;
+    if (total === 0) return '';
+    const evLines = evDetails.map(d =>
+      `<div style="font-size:11px;color:var(--text-muted);padding:2px 0;padding-left:14px">· ${escapeHtml(d.n)}：🟢${d.c} 🟡${d.i} 🔵${d.b} ⚪${d.dd}</div>`
+    ).join('');
+    return (
+      `<div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;background:var(--bg-card,#fff)">` +
+      `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">` +
+      `<span style="font-size:15px;font-weight:700">${escapeHtml(game.name)}</span>` +
+      `<span class="muted" style="font-size:12px">共 <b>${total}</b> 个偏移点</span>` +
+      `</div>` +
+      `<div style="font-size:13px;margin-bottom:6px">🟢你手动填写 <b>${gc}</b> · 🟡自动沿用 <b>${gi}</b> · 🔵全局基准 <b>${gb}</b> · ⚪系统默认 <b>${gd}</b></div>` +
+      (evLines ? `<div style="border-top:1px dashed var(--border);padding-top:6px">${evLines}</div>` : '') +
+      `</div>`
+    );
+  }
+
+  let body;
+  if (optGameId) {
+    // 单游戏模式：只展示该游戏的独立计算
+    const game = state.games.find(g => g.id === optGameId);
+    if (!game) { toast('游戏不存在'); return; }
+    const card = buildGameCard(game);
+    body =
+      `<p class="muted" style="font-size:12px">${only}</p>` +
+      (card || '<p class="muted">该游戏暂无偏移数据</p>');
+    document.getElementById('modal-title').textContent = `🧮 偏移计算 — ${game.name}`;
+  } else {
+    // 全部游戏汇总模式
+    const cards = [];
+    let gTotal = 0, gConfirmed = 0, gInherited = 0, gBase = 0, gDef = 0;
+    state.games.filter(g => visibleGames[g.id] !== false).forEach(game => {
+      const vers = genGameVersions(game);
+      let gc = 0, gi = 0, gb = 0, gd = 0;
+      vers.forEach(v => v.events.forEach(ev => {
+        gTotal++;
+        if (ev.source === 'confirmed') { gConfirmed++; gc++; }
+        else if (ev.source === 'inherited') { gInherited++; gi++; }
+        else if (ev.source === 'base') { gBase++; gb++; }
+        else { gDef++; gd++; }
+      }));
+      if (gc + gi + gb + gd > 0) {
+        cards.push(buildGameCard(game));
+      }
+    });
+    body =
+      `<p class="muted" style="font-size:12px">${only}</p>` +
+      `<div style="max-height:360px;overflow:auto;margin-top:6px">${cards.join('') || '<p class="muted">暂无可见游戏</p>'}</div>` +
+      `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:12px" class="muted">` +
+      `全部合计：${gTotal} 个 · 🟢${gConfirmed} · 🟡${gInherited} · 🔵${gBase} · ⚪${gDef}` +
+      `</div>`;
+    document.getElementById('modal-title').textContent = '🧮 偏移计算汇总（全部游戏）';
+  }
   document.getElementById('modal-body').innerHTML = body;
-  document.getElementById('modal-save').onclick = () => { hideModal(); render(); toast('已查看'); };
+  document.getElementById('modal-save').onclick = () => { hideModal(); render(); toast('已重新计算'); };
   showModal();
 }
 
