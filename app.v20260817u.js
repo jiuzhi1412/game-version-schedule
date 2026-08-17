@@ -1135,9 +1135,10 @@ function teaseCellHTML(def, remark, editMode, game, v, targetVer, teaseDate, ver
       ` title="点击恢复显示：新角色爆料·角色${ci + 1}">` +
       `<span class="le-add-hint">＋ 恢复</span></td>`;
   }
+  // 有备注名显示标签，无备注名不渲染占位符（避免多余 span 产生横线）
   const tag = remark
     ? `<div class="ev-char-tag" style="background:${color}18;color:${color};border:1px solid ${color}44">${escapeHtml(remark)}</div>`
-    : `<span class="muted" style="border:0!important;outline:0!important;box-shadow:none!important;text-decoration-line:none!important;text-decoration-style:none!important;text-decoration-color:transparent!important;text-decoration:none!important;border-bottom:0!important;background:none!important;all:unset;display:inline">—</span>`;
+    : '';
   // 日期倒计时（与 listEvCellHTML 算法一致）
   const cd = teaseDate ? diffDays(teaseDate, todayNoon()) : null;
   const cdTxt = cd === null ? '' : (cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd)));
