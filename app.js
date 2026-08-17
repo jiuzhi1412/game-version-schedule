@@ -1394,19 +1394,24 @@ function renderList() {
     };
 
     // 渲染顺序：更早历史(灰) → —今天— → 📍当前版本(高亮) → 未来(正常)
-    // 合并版本号+更新日期+倒计时为一个单元格
+    // 两行布局：第1行=版本号（突出），第2行=日期+倒计时（小字）
     const verDateTd = (v, isCurrent) => {
       const prefix = isCurrent ? '📍 ' : '';
       const dateStr = fmtDate(v.updateDate);
       const cd = diffDays(v.updateDate, todayNoon());
-      const cdTxt = cd === 0 ? '· 今天' : (cd > 0 ? `· +${cd}` : `· ${cd}`);
+      const cdTxt = cd === 0 ? '今天' : (cd > 0 ? `+${cd}` : String(cd));
       if (editMode) {
         return `<td class="vt-ver">` +
+          `<div style="font-size:15px;font-weight:600;line-height:1.4">` +
           `<span class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="ver" title="点击编辑版本信息">${prefix}${v.label}<span class="le-edit-hint">✏️</span></span>` +
-          `（<span class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="update" title="点击修改更新日期">${dateStr}<span class="le-edit-hint">✏️</span></span><span class="muted" style="font-size:11px;margin-left:2px">${cdTxt}</span>）` +
-          `</td>`;
+          `</div>` +
+          `<div class="muted" style="font-size:11px;line-height:1.3">` +
+          `(<span class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="update" title="点击修改更新日期">${dateStr}<span class="le-edit-hint">✏️</span></span> · ${cdTxt})` +
+          `</div></td>`;
       }
-      return `<td class="vt-ver">${prefix}${v.label}（${dateStr}<span class="muted" style="font-size:11px;margin-left:2px">${cdTxt}</span>）</td>`;
+      return `<td class="vt-ver">` +
+        `<div style="font-size:15px;font-weight:600;line-height:1.4">${prefix}${v.label}</div>` +
+        `<div class="muted" style="font-size:11px;line-height:1.3">(${dateStr} · ${cdTxt})</div></td>`;
     };
     // ---- 更早的历史版本 ----
     olderVersions.forEach(v => {
