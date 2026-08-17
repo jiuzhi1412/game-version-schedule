@@ -2,7 +2,8 @@
  * 游戏版本周期日程表  —  Game Version Schedule
  * 纯前端单页应用。数据存 localStorage，预留云端同步接口。
  * ========================================================================= */
-console.log('[GVS] 加载 app.v20260817b.js — 已修复：静态事件整条用模板权威定义覆盖(name/sub/offsets)');
+
+console.log('[GVS] 加载 app.v20260817b.js — 新角色爆料已按角色拆分（数量=每版角色数），每个子类直接显示对应角色卡池备注名');
 'use strict';
 
 /* ----------------------------- 事件类型定义 ----------------------------- */
@@ -11,7 +12,7 @@ console.log('[GVS] 加载 app.v20260817b.js — 已修复：静态事件整条�
  * 这是默认模板；用户可在设置中增删隐藏，实际使用 state.customEvents。 */
 const EVENT_DEFS_TEMPLATE = [
   { key: 'version_update',  name: '版本更新', offsets: [0] },
-  { key: 'char_tease',      name: '新角色爆料', offsets: [33] },
+  // 新角色爆料不再作为静态顶层事件；改为按 game.charCount 动态生成（每个角色一个子类，见 generateCharEvents），直接显示对应角色的备注名
   // 角色预告/PV 不再作为独立顶层事件，改为按 game.charCount 动态生成（见 generateCharEvents）
   { key: 'version_preview', name: '版本前瞻', offsets: [35] },
 ];
@@ -41,6 +42,15 @@ function generateCharEvents(charCount) {
   const groupOrder = rawGroup.filter(i => i >= 0 && i < n);
   for (let i = 0; i < n; i++) if (!groupOrder.includes(i)) groupOrder.push(i); // 补全缺失角色
   const evts = [];
+  // 新角色爆料：按角色拆分为多个子类（数量=角色数），每个子类直接显示对应角色的备注名
+  const TEASE_OFF = 33; // 相对版本更新日的偏移（版本末期预告本版本角色）
+  groupOrder.forEach(i => {
+    const label = CHARS[i] || String(i + 1);
+    evts.push({
+      key: 'char_tease', name: '新角色爆料·角色' + label, sub: undefined,
+      offsets: [TEASE_OFF], charIndex: i, _isChar: true, _tease: true
+    });
+  });
   groupOrder.forEach(i => {
     const base = baseOffsets[i] || 0;
     const label = CHARS[i] || String(i + 1);
@@ -72,7 +82,7 @@ function activeEvents() {
     const k = (e.key || '').toString().trim();
     if (k.startsWith('banner')) return false; // 过滤所有 banner 变体
     return e.hidden !== true &&
-      k !== 'char_pv' && k !== 'char_preview';
+      k !== 'char_pv' && k !== 'char_preview' && k !== 'char_tease';
   }).map(e => {
     const k = (e.key || '').toString().trim();
     const t = TMPL[k];
@@ -151,8 +161,9 @@ const EVENT_COLORS = {
 function eventColor(defKey, idx) {
   if (defKey === 'banner') return EVENT_COLORS['banner_' + idx];
   // 角色事件带 charIndex
-  if (defKey === 'char_banner' || defKey === 'char_preview' || defKey === 'char_pv') {
-    return EVENT_COLORS[defKey + '_' + (idx ?? 0)] || EVENT_COLORS[defKey] || '#64748b';
+  if (defKey === 'char_banner' || defKey === 'char_preview' || defKey === 'char_pv' || defKey === 'char_tease') {
+    const baseKey = defKey === 'char_tease' ? 'char_banner' : defKey; // 爆料用对应角色卡池的配色，视觉绑定角色
+    return EVENT_COLORS[baseKey + '_' + (idx ?? 0)] || EVENT_COLORS[defKey] || '#64748b';
   }
   return EVENT_COLORS[defKey] || '#64748b';
 }
@@ -322,9 +333,9 @@ function applyRemoteState(remote) {
   if (Array.isArray(state.customEvents)) {
     state.customEvents = state.customEvents.filter(e => {
       const k = (e.key || '').toString().trim();
-      // 过滤所有 banner 变体（banner/banner_0/banner_1…）+ 已废弃的 char_pv/char_preview
+      // 过滤所有 banner 变体（banner/banner_0/banner_1…）+ 已废弃的 char_pv/char_preview/char_tease（静态爆料改动态生成）
       if (k.startsWith('banner')) return false;
-      return k !== 'char_pv' && k !== 'char_preview';
+      return k !== 'char_pv' && k !== 'char_preview' && k !== 'char_tease';
     });
   }
   console.log('[GVS] 🔍 清理后 customEvents keys:', state.customEvents.map(e=>e.key), '（删除了', beforeLen - state.customEvents.length, '条）');
@@ -578,12 +589,12 @@ async function init() {
   let changed = false;
   const cleaned = [];
   state.customEvents.forEach(e => {
-    if (e.key === 'char_preview' || e.key === 'char_pv' || e.key === 'banner') { changed = true; return; }
+    if (e.key === 'char_preview' || e.key === 'char_pv' || e.key === 'banner' || e.key === 'char_tease') { changed = true; return; }
     cleaned.push(e);
   });
   if (changed) { state.customEvents = cleaned; Storage.save(state); persistToFile(); }
-  // 清理各游戏 hiddenEventKeys 中已失效的旧 key（banner/banner_0/banner_1/裸char_pv/裸char_preview）
-  const staleKeys = ['banner', 'banner_0', 'banner_1', 'char_pv', 'char_preview'];
+  // 清理各游戏 hiddenEventKeys 中已失效的旧 key（banner/banner_0/banner_1/裸char_pv/裸char_preview/裸char_tease）
+  const staleKeys = ['banner', 'banner_0', 'banner_1', 'char_pv', 'char_preview', 'char_tease'];
   state.games.forEach(g => {
     if (Array.isArray(g.hiddenEventKeys) && g.hiddenEventKeys.some(k => staleKeys.includes(k))) {
       const before = g.hiddenEventKeys.length;
@@ -853,7 +864,8 @@ function reorderCharSubs(fromKey, toKey) {
 }
 
 /* ----------------------------- 视图统一设置条 + 时间轴侧栏 ----------------------------- */
-const SHORT = { version_update: '更新', char_tease: '爆料', version_preview: '前瞻',
+const SHORT = { version_update: '更新', version_preview: '前瞻',
+  char_tease_0: '一爆料', char_tease_1: '二爆料', char_tease_2: '三爆料', char_tease_3: '四爆料', char_tease_4: '五爆料', char_tease_5: '六爆料',
   char_banner_0: '角色一卡池', char_banner_1: '角色二卡池', char_banner_2: '角色三卡池', char_banner_3: '角色四卡池', char_banner_4: '角色五卡池', char_banner_5: '角色六卡池',
   char_preview_0: '一预告', char_preview_1: '二预告', char_preview_2: '三预告', char_preview_3: '四预告', char_preview_4: '五预告', char_preview_5: '六预告',
   char_pv_0: '一PV', char_pv_1: '二PV', char_pv_2: '三PV', char_pv_3: '四PV', char_pv_4: '五PV', char_pv_5: '六PV' };
@@ -2245,7 +2257,7 @@ function openSettings() {
   let evRows = '';
   rawEvts.forEach((ev, i) => {
     // 跳过已废弃的旧 key（与 activeEvents 渲染源头一致）
-    if (ev.key === 'char_pv' || ev.key === 'char_preview' || ev.key === 'banner') return;
+    if (ev.key === 'char_pv' || ev.key === 'char_preview' || ev.key === 'banner' || ev.key === 'char_tease') return;
     const hidden = !!ev.hidden;
     const color = EVENT_COLORS[ev.key] || '#64748b';
     const offStr = (ev.offsets || []).join(', ');
@@ -2299,6 +2311,33 @@ function openSettings() {
     });
   }
 
+  // 新角色爆料分组（按角色拆分，数量=每版角色数；每个子项直接显示对应角色卡池的备注名）
+  let teaseHtml = '';
+  if (charCount > 0) {
+    const tOrder = (state.charGroupOrder || []).filter(i => i >= 0 && i < charCount);
+    for (let i = 0; i < charCount; i++) if (!tOrder.includes(i)) tOrder.push(i);
+    let tSubRows = '';
+    tOrder.forEach(ci => {
+      const label = CHARS[ci] || String(ci + 1);
+      const color = eventColor('char_tease', ci);
+      tSubRows += `<div class="set-ev-sub set-ev-tease-sub" draggable="true" data-ci="${ci}">
+        <span class="set-ev-grab">⠿</span>
+        <span class="set-ev-dot" style="background:${color}"></span>
+        <span class="set-ev-sub-name">角色${label}爆料</span>
+        <span class="muted set-ev-sub-off">直接显示「角色${label}卡池」的备注名</span>
+      </div>`;
+    });
+    const tHeadColor = eventColor('char_tease', 0);
+    teaseHtml = `<div class="set-ev-group" data-tease="1">
+      <div class="set-ev-group-header" data-tease="1" style="cursor:default">
+        <span class="set-ev-dot" style="background:${tHeadColor}"></span>
+        <span class="set-ev-group-title">新角色爆料</span>
+        <span class="muted">按角色拆分（数量=每版角色数）；拖拽子项可调整顺序，与角色分组一致</span>
+      </div>
+      <div class="set-ev-group-body" data-tease="1">${tSubRows}</div>
+    </div>`;
+  }
+
   body.innerHTML = `
     <div class="modal-tabs">
       <button type="button" class="mtab active" data-tab="s-basic">基础设置</button>
@@ -2346,6 +2385,10 @@ function openSettings() {
         <div class="field"><label>② 角色事件（按「每版角色数」自动生成；角色之间可拖拽排序，组内卡池/预告/PV 仅可在本角色内排序）</label>
           <div class="muted" style="margin-bottom:8px">这部分无需手动添加。拖动「角色一/角色二…」标题可调整角色先后；展开后拖动「卡池/预告/PV」可调整该角色内三项的先后顺序，且不会影响其他角色。</div>
           <div id="set-char-groups">${charGroupHtml}</div>
+        </div>
+        <div class="field"><label>③ 新角色爆料（按角色拆分；数量=每版角色数，每个子类直接显示对应角色卡池的备注名）</label>
+          <div class="muted" style="margin-bottom:8px">「新角色爆料」不再是一个整体列，而是按角色拆成多个子类（角色一爆料/角色二爆料…）。每个子类显示的始终是「角色N卡池」里填写的备注名，无需单独设置。拖拽子类可调整这些爆料列的先后顺序（与角色分组顺序一致）。想要 1 个或更多子类，改上方「每版角色数」即可。</div>
+          <div id="set-tease-group">${teaseHtml}</div>
         </div>
       </div>
   `;
@@ -2523,6 +2566,30 @@ function openSettings() {
       if (parts[1] !== sub.dataset.ci) return; // 不允许跨角色组拖拽
       e.preventDefault(); e.stopPropagation();
       reorderCharSubs(parts[2], sub.dataset.key);
+    });
+  });
+  // 新角色爆料子项拖拽排序（与角色分组顺序一致，复用 reorderCharGroups）
+  body.querySelectorAll('.set-ev-tease-sub').forEach(sub => {
+    sub.addEventListener('dragstart', (e) => {
+      sub.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', 'teasesub|' + sub.dataset.ci);
+    });
+    sub.addEventListener('dragend', () => {
+      sub.classList.remove('dragging');
+      body.querySelectorAll('.set-ev-tease-sub').forEach(s => s.classList.remove('drag-over'));
+    });
+    sub.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; sub.classList.add('drag-over'); });
+    sub.addEventListener('dragleave', () => sub.classList.remove('drag-over'));
+    sub.addEventListener('drop', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      sub.classList.remove('drag-over');
+      const data = e.dataTransfer.getData('text/plain');
+      if (data.indexOf('teasesub|') !== 0) return;
+      const fromCi = Number(data.split('|')[1]);
+      const toCi = Number(sub.dataset.ci);
+      if (fromCi === toCi) return;
+      reorderCharGroups(fromCi, toCi); // 复用：爆料子项顺序=角色顺序
     });
   });
   // 角色组展开/收起
