@@ -1278,7 +1278,7 @@ function renderList() {
     console.log('[GVS] 🔍 列表视图实际表头文字 (game=' + (game&&game.id) + '): ' + headTexts.join(' | '));
     // 构建可见事件 key 集合（cols 计算仍需要）
 
-    const cols = 2 + gEvts.reduce((a, d) => a + d.offsets.length, 0);
+    const cols = 1 + gEvts.reduce((a, d) => a + d.offsets.length, 0);
 
     // 构建分组表头数据（用于 headRow1 的分组行，含 colspan）
     const charGroupDefs = []; // { ci, label, cols: [{def, idx}] }
@@ -1394,15 +1394,21 @@ function renderList() {
     };
 
     // 渲染顺序：更早历史(灰) → —今天— → 📍当前版本(高亮) → 未来(正常)
+    // 合并版本号+更新日期为一个单元格
+    const verDateTd = (v, isCurrent) => {
+      const prefix = isCurrent ? '📍 ' : '';
+      const dateStr = fmtDate(v.updateDate);
+      if (editMode) {
+        return `<td class="vt-ver">` +
+          `<span class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="ver" title="点击编辑版本信息">${prefix}${v.label}<span class="le-edit-hint">✏️</span></span>` +
+          `（<span class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="update" title="点击修改更新日期">${dateStr}<span class="le-edit-hint">✏️</span></span>）` +
+          `</td>`;
+      }
+      return `<td class="vt-ver">${prefix}${v.label}（${dateStr}）</td>`;
+    };
     // ---- 更早的历史版本 ----
     olderVersions.forEach(v => {
-      const verTd = editMode
-        ? `<td class="vt-ver le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="ver" title="点击编辑版本信息">${v.label}<span class="le-edit-hint">✏️</span></td>`
-        : `<td class="vt-ver">${v.label}</td>`;
-      const updateTd = editMode
-        ? `<td class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="update" title="点击修改更新日期">${fmtDate(v.updateDate)}<span class="le-edit-hint">✏️</span></td>`
-        : `<td>${fmtDate(v.updateDate)}</td>`;
-      rows += `<tr class="vt-past">${verTd}${updateTd}`;
+      rows += `<tr class="vt-past">${verDateTd(v, false)}`;
       rows += renderEvCells(v, editMode);
       rows += `</tr>`;
     });
@@ -1412,25 +1418,13 @@ function renderList() {
     }
     // ---- 当前版本（高亮） ----
     if (currentVer) {
-      const verTd = editMode
-        ? `<td class="vt-ver le-editable" data-game="${game.id}" data-tenths="${currentVer.tenths}" data-cell-type="ver" title="点击编辑版本信息">📍 ${currentVer.label}<span class="le-edit-hint">✏️</span></td>`
-        : `<td class="vt-ver">📍 ${currentVer.label}</td>`;
-      const updateTd = editMode
-        ? `<td class="le-editable" data-game="${game.id}" data-tenths="${currentVer.tenths}" data-cell-type="update" title="点击修改更新日期">${fmtDate(currentVer.updateDate)}<span class="le-edit-hint">✏️</span></td>`
-        : `<td>${fmtDate(currentVer.updateDate)}</td>`;
-      rows += `<tr class="vt-current">${verTd}${updateTd}`;
+      rows += `<tr class="vt-current">${verDateTd(currentVer, true)}`;
       rows += renderEvCells(currentVer, editMode);
       rows += `</tr>`;
     }
     // ---- 未来版本 ----
     futureN.forEach(v => {
-      const verTd = editMode
-        ? `<td class="vt-ver le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="ver" title="点击编辑版本信息">${v.label}<span class="le-edit-hint">✏️</span></td>`
-        : `<td class="vt-ver">${v.label}</td>`;
-      const updateTd = editMode
-        ? `<td class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="update" title="点击修改更新日期">${fmtDate(v.updateDate)}<span class="le-edit-hint">✏️</span></td>`
-        : `<td>${fmtDate(v.updateDate)}</td>`;
-      rows += `<tr>${verTd}${updateTd}`;
+      rows += `<tr>${verDateTd(v, false)}`;
       rows += renderEvCells(v, editMode);
       rows += `</tr>`;
     });
@@ -1441,7 +1435,7 @@ function renderList() {
     const renameBtnHTML = (gId, key, kind) => editMode
       ? `<button type="button" class="le-rename-btn" draggable="false" onmousedown="event.stopPropagation()" onclick="openColRenameEditor('${gId}','${escapeAttr(key)}','${kind}', this.closest('th'))" title="重命名此列">✏️</button>`
       : '';
-    let headRow1 = '<th rowspan="2">版本</th><th rowspan="2">更新</th>';
+    let headRow1 = '<th rowspan="2">版本</th>';
     groups.forEach(g => {
       const hid = g.cols.every(c => isDefHidden(c.def));
       const gDrag = editMode ? ` draggable="true" data-group-id="${escapeAttr(g.id)}"` : '';
