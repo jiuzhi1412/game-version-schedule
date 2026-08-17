@@ -1,19 +1,18 @@
 /* =========================================================================
  * 游戏版本周期日程表  —  Game Version Schedule
  * 纯前端单页应用。数据存 localStorage，预留云端同步接口。
- * v20260817b — 云端加载路径也清理 banner/char_pv/char_preview（与本地迁移一致）
  * ========================================================================= */
-console.log('[GVS] 加载 app.v20260817b.js — 云端加载已修复，无卡池更新上半列');
+
+console.log('[GVS] 加载 app.v20260817b.js — banner 已从模板删除，无卡池更新上半列');
 
 'use strict';
 
 /* ----------------------------- 事件类型定义 ----------------------------- */
 /* 每个版本周期内派生的固定事件。offsets 为相对"版本更新日(第0天)"的默认偏移天数。
- * 卡池更新一个版本发生两次(上半/下半)。
+ * 卡池更新由「角色卡池」事件替代，故默认模板不再含 banner。
  * 这是默认模板；用户可在设置中增删隐藏，实际使用 state.customEvents。 */
 const EVENT_DEFS_TEMPLATE = [
   { key: 'version_update',  name: '版本更新', offsets: [0] },
-  { key: 'banner',          name: '卡池更新', offsets: [0], sub: ['上半'] },
   { key: 'char_tease',      name: '新角色爆料', offsets: [33] },
   // 角色预告/PV 不再作为独立顶层事件，改为按 game.charCount 动态生成（见 generateCharEvents）
   { key: 'version_preview', name: '版本前瞻', offsets: [35] },

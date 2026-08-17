@@ -7,11 +7,10 @@
 
 /* ----------------------------- 事件类型定义 ----------------------------- */
 /* 每个版本周期内派生的固定事件。offsets 为相对"版本更新日(第0天)"的默认偏移天数。
- * 卡池更新一个版本发生两次(上半/下半)。
+ * 卡池更新由「角色卡池」事件替代，故默认模板不再含 banner。
  * 这是默认模板；用户可在设置中增删隐藏，实际使用 state.customEvents。 */
 const EVENT_DEFS_TEMPLATE = [
   { key: 'version_update',  name: '版本更新', offsets: [0] },
-  { key: 'banner',          name: '卡池更新', offsets: [0], sub: ['上半'] },
   { key: 'char_tease',      name: '新角色爆料', offsets: [33] },
   // 角色预告/PV 不再作为独立顶层事件，改为按 game.charCount 动态生成（见 generateCharEvents）
   { key: 'version_preview', name: '版本前瞻', offsets: [35] },
