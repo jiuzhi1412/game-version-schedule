@@ -1137,12 +1137,12 @@ function teaseCellHTML(def, remark, editMode, game, v, targetVer, teaseDate, ver
   }
   const tag = remark
     ? `<div class="ev-char-tag" style="background:${color}18;color:${color};border:1px solid ${color}44">${escapeHtml(remark)}</div>`
-    : `<span class="muted">—</span>`;
+    : `<span class="muted" style="border:none!important;outline:none!important;box-shadow:none!important;text-decoration:none!important;border-bottom:none!important;background:none!important">—</span>`;
   // 日期倒计时（与 listEvCellHTML 算法一致）
   const cd = teaseDate ? diffDays(teaseDate, todayNoon()) : null;
   const cdTxt = cd === null ? '' : (cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd)));
   const dateHtml = teaseDate
-    ? `<div class="le-cell-date">${fmtDate(teaseDate)}</div><div class="muted" style="font-size:11px">${cdTxt}</div>`
+    ? `<div class="le-cell-date" style="border:none!important;outline:none!important;box-shadow:none!important;text-decoration:none!important;border-bottom:none!important;background:none!important">${fmtDate(teaseDate)}</div><div class="muted" style="font-size:11px;border:none!important;outline:none!important;box-shadow:none!important;text-decoration:none!important;border-bottom:none!important;background:none!important">${cdTxt}</div>`
     : `<div class="le-cell-date muted">—</div>`;
   // 爆料列可点击编辑：修改目标版本的角色备注名 + 爆料事件日期
   return `<td class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}"` +
