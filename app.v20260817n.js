@@ -1124,16 +1124,25 @@ function teaseCellHTML(def, remark, editMode, game, v, targetVer, teaseDate, ver
   const color = eventColor('char_tease', ci);
   const hidden = verHidden || !!def._hidden;
   const targetLabel = targetVer ? targetVer.label || '—' : '—';
+  // 已隐藏：编辑模式可点击恢复（与普通事件格子一致）
   if (hidden) {
-    return editMode
-      ? `<td class="vt-empty" title="新角色爆料·角色${ci + 1} 已隐藏">—</td>`
-      : `<td class="vt-empty" title="新角色爆料·角色${ci + 1} 已隐藏">—</td>`;
+    if (!editMode) {
+      return `<td class="vt-empty" title="新角色爆料·角色${ci + 1} 已隐藏">—</td>`;
+    }
+    return `<td class="le-editable vt-empty" data-game="${game.id}" data-tenths="${v.tenths}"` +
+      ` data-cell-type="tease" data-char-index="${ci}"` +
+      (targetVer ? ` data-target-tenths="${targetVer.tenths}"` : '') +
+      ` title="点击恢复显示：新角色爆料·角色${ci + 1}">` +
+      `<span class="le-add-hint">＋ 恢复</span></td>`;
   }
   const tag = remark
     ? `<div class="ev-char-tag" style="background:${color}18;color:${color};border:1px solid ${color}44">${escapeHtml(remark)}</div>`
     : `<span class="muted">—</span>`;
+  // 日期倒计时（与 listEvCellHTML 算法一致）
+  const cd = teaseDate ? diffDays(teaseDate, todayNoon()) : null;
+  const cdTxt = cd === null ? '' : (cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd)));
   const dateHtml = teaseDate
-    ? `<div class="le-cell-date">${fmtDate(teaseDate)}</div>`
+    ? `<div class="le-cell-date">${fmtDate(teaseDate)}</div><div class="muted" style="font-size:11px">${cdTxt}</div>`
     : `<div class="le-cell-date muted">—</div>`;
   // 爆料列可点击编辑：修改目标版本的角色备注名 + 爆料事件日期
   return `<td class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}"` +
