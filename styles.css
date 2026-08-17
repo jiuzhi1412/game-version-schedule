@@ -291,9 +291,10 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
   position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px;
   background: rgba(37,99,235,.55); border-radius: 2px;
   box-shadow: 0 0 3px rgba(37,99,235,.35); pointer-events: none;
-  opacity: 0; z-index: 40; transition: left .1s ease, opacity .15s ease;
+  opacity: 0; z-index: 40; transition: left .08s ease; /* 仅 left 平滑跟随；opacity 不过渡→出现即满亮，零延迟 */
 }
 #le-drop-line.show { opacity: 1; animation: le-drop-pulse 1.2s ease-in-out infinite; }
+#le-drop-line.held { background: rgba(100,116,139,.6); box-shadow: 0 0 3px rgba(100,116,139,.45); animation: none; } /* 手持态：中性灰、无脉冲 */
 #le-drop-line::before { /* 顶部小三角，指向插入方向 */
   content: ''; position: absolute; top: -1px; left: 50%; transform: translateX(-50%);
   border-left: 4px solid transparent; border-right: 4px solid transparent;

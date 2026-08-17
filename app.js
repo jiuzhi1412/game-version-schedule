@@ -1438,6 +1438,7 @@ function playColumnFlip(oldMap) {
  *   - 第二行(th.le-col-drag)：拖「子列」，但只能在本组内移动，不能跨组
  * 用模块级 _listDragSrc 记录拖拽源，避免 dragover 中读取 dataTransfer 的限制。 */
 let _listDragSrc = null; // { kind:'group'|'col', groupId, colId }
+let _listDragSrcEl = null; // 拖拽源 th 元素（用于起步手持指示线，消除死区）
 let _listInsSide = 'before'; // 'before' | 'after' —— 落位在目标前/后（由光标半区决定）
 function bindColumnDrag() {
   const theads = Array.from(document.querySelectorAll('#view-list thead'));
@@ -1449,29 +1450,33 @@ function bindColumnDrag() {
   groupEls.forEach(th => {
     th.addEventListener('dragstart', e => {
       _listDragSrc = { kind: 'group', groupId: th.dataset.groupId };
+      _listDragSrcEl = th;
       e.dataTransfer.effectAllowed = 'move';
       try { e.dataTransfer.setData('text/plain', 'group:' + th.dataset.groupId); } catch(_) {}
       th.classList.add('le-dragging');
+      showDropLine(th, 'after', true); // 起步即在源边缘画手持指示线，消除死区
     });
-    th.addEventListener('dragend', () => { th.classList.remove('le-dragging'); document.querySelectorAll('#view-list .drag-over-before, #view-list .drag-over-after').forEach(x => x.classList.remove('drag-over-before', 'drag-over-after')); hideDropLine(); _listDragSrc = null; });
+    th.addEventListener('dragend', () => { th.classList.remove('le-dragging'); clearTargetHighlights(); hideDropLine(); _listDragSrc = null; _listDragSrcEl = null; });
   });
   colEls.forEach(th => {
     th.addEventListener('dragstart', e => {
       _listDragSrc = { kind: 'col', groupId: th.dataset.groupId, colId: th.dataset.colId };
+      _listDragSrcEl = th;
       e.dataTransfer.effectAllowed = 'move';
       try { e.dataTransfer.setData('text/plain', 'col:' + th.dataset.groupId + ':' + th.dataset.colId); } catch(_) {}
       th.classList.add('le-dragging');
+      showDropLine(th, 'after', true); // 起步即在源边缘画手持指示线，消除死区
     });
-    th.addEventListener('dragend', () => { th.classList.remove('le-dragging'); document.querySelectorAll('#view-list .drag-over-before, #view-list .drag-over-after').forEach(x => x.classList.remove('drag-over-before', 'drag-over-after')); hideDropLine(); _listDragSrc = null; });
+    th.addEventListener('dragend', () => { th.classList.remove('le-dragging'); clearTargetHighlights(); hideDropLine(); _listDragSrc = null; _listDragSrcEl = null; });
   });
 
-  const clearOver = () => { document.querySelectorAll('#view-list .drag-over-before, #view-list .drag-over-after').forEach(x => x.classList.remove('drag-over-before', 'drag-over-after')); hideDropLine(); };
+  const clearTargetHighlights = () => document.querySelectorAll('#view-list .drag-over-before, #view-list .drag-over-after').forEach(x => x.classList.remove('drag-over-before', 'drag-over-after'));
 
   // —— 事件委托：dragover / drop 绑到每个 thead，用 closest()/x 坐标定位目标（规避 colspan 子元素命中错乱）——
   theads.forEach(thead => {
   thead.addEventListener('dragover', e => {
-    if (!_listDragSrc) return;
-    clearOver();
+    if (!_listDragSrc || !_listDragSrcEl) return;
+    clearTargetHighlights();
     if (_listDragSrc.kind === 'group') {
       // 组拖：直接命中分组块优先，光标在子列区时退回按 x 命中整块（跨两行也生效）
       const tgt = e.target.closest('.le-group-drag') || groupAtX(e.clientX);
@@ -1480,7 +1485,10 @@ function bindColumnDrag() {
         const r = tgt.getBoundingClientRect();
         _listInsSide = (e.clientX - r.left) < r.width / 2 ? 'before' : 'after';
         tgt.classList.add('drag-over-' + _listInsSide);
-        showDropLine(tgt, _listInsSide);
+        showDropLine(tgt, _listInsSide, false); // 真实插入线
+      } else {
+        // 仍在源块/无效区域：保持手持指示线（消除起步死区，不再无反馈）
+        showDropLine(_listDragSrcEl, 'after', true);
       }
     } else if (_listDragSrc.kind === 'col') {
       // 子列拖：仅同组且非自身；左半区=插前、右半区=插后
@@ -1490,13 +1498,15 @@ function bindColumnDrag() {
         const r = cT.getBoundingClientRect();
         _listInsSide = (e.clientX - r.left) < r.width / 2 ? 'before' : 'after';
         cT.classList.add('drag-over-' + _listInsSide);
-        showDropLine(cT, _listInsSide);
+        showDropLine(cT, _listInsSide, false);
+      } else {
+        showDropLine(_listDragSrcEl, 'after', true);
       }
     }
   });
-  thead.addEventListener('dragleave', e => { if (!thead.contains(e.relatedTarget)) clearOver(); });
+  // 注：不在 dragleave 隐藏指示线——拖拽中途光标落入表体时保留最后指示，避免「线消失」错觉
   thead.addEventListener('drop', e => {
-    e.preventDefault(); clearOver();
+    e.preventDefault(); clearTargetHighlights(); hideDropLine();
     const cT = e.target.closest('.le-col-drag');
     if (_listDragSrc && _listDragSrc.kind === 'group') {
       const srcId = _listDragSrc.groupId;
@@ -1551,7 +1561,7 @@ function groupAtX(x) {
 
 // —— 落点指示线浮层（绝对定位，贯穿整表高度，醒目且不受 <th> 渲染限制）——
 let _dropLineEl = null;
-function showDropLine(targetEl, side) {
+function showDropLine(targetEl, side, held) {
   const scroll = targetEl.closest('.calendar-scroll');
   if (!scroll) return;
   if (!_dropLineEl) {
@@ -1565,6 +1575,7 @@ function showDropLine(targetEl, side) {
   const sr = scroll.getBoundingClientRect();
   const left = (side === 'after' ? r.right : r.left) - sr.left + scroll.scrollLeft;
   _dropLineEl.style.left = left + 'px';
+  _dropLineEl.classList.toggle('held', !!held); // 手持态：中性灰、无脉冲
   _dropLineEl.classList.add('show');
 }
 function hideDropLine() { if (_dropLineEl) _dropLineEl.classList.remove('show'); }
