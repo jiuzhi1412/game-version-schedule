@@ -60,11 +60,11 @@ function generateCharEvents(charCount) {
 
 /** 获取当前生效的事件定义列表（过滤掉 hidden 的，含动态生成的角色事件） */
 function activeEvents() {
-  // 渲染源头过滤已废弃的旧 key：旧 char_pv/char_preview（已被角色分组替代）、banner 的下半（已被角色二卡池替代）
+  // 渲染源头过滤已废弃的旧 key：char_pv/char_preview（已被角色分组替代）、banner（已被角色一卡池替代）
   const base = (state.customEvents || EVENT_DEFS_TEMPLATE).filter(e =>
     e.hidden !== true &&
     e.key !== 'char_pv' && e.key !== 'char_preview' &&
-    !(e.key === 'banner' && Array.isArray(e.offsets) && e.offsets.length > 1)
+    e.key !== 'banner'
   );
   // 追加动态角色事件（从第一个游戏取 charCount，或默认2）
   const charCount = (state.games && state.games[0] && state.games[0].charCount) || 2;
@@ -529,22 +529,16 @@ async function init() {
   if (!state.charGroupOrder || !Array.isArray(state.charGroupOrder)) {
     state.charGroupOrder = [0, 1, 2, 3, 4, 5];
   }
-  // 清除旧静态 char_preview/char_pv（已改为按 charCount 动态生成，避免重复列）
-  // 同时将旧 banner 的双 offset（上半+下半）截断为单 offset（仅上半），下半已被角色卡池替代
+  // 清除旧静态 char_preview/char_pv/banner（已改为按 charCount 动态生成或被角色一卡池替代，避免重复列）
   let changed = false;
   const cleaned = [];
   state.customEvents.forEach(e => {
-    if (e.key === 'char_preview' || e.key === 'char_pv') { changed = true; return; }
-    if (e.key === 'banner' && Array.isArray(e.offsets) && e.offsets.length > 1) {
-      cleaned.push({ ...e, offsets: [e.offsets[0]], sub: e.sub ? [e.sub[0]] : ['上半'] });
-      changed = true;
-      return;
-    }
+    if (e.key === 'char_preview' || e.key === 'char_pv' || e.key === 'banner') { changed = true; return; }
     cleaned.push(e);
   });
   if (changed) { state.customEvents = cleaned; Storage.save(state); persistToFile(); }
-  // 清理各游戏 hiddenEventKeys 中已失效的旧 key（banner_1/裸char_pv/裸char_preview）
-  const staleKeys = ['banner_1', 'char_pv', 'char_preview'];
+  // 清理各游戏 hiddenEventKeys 中已失效的旧 key（banner/banner_0/banner_1/裸char_pv/裸char_preview）
+  const staleKeys = ['banner', 'banner_0', 'banner_1', 'char_pv', 'char_preview'];
   state.games.forEach(g => {
     if (Array.isArray(g.hiddenEventKeys) && g.hiddenEventKeys.some(k => staleKeys.includes(k))) {
       const before = g.hiddenEventKeys.length;
@@ -2199,9 +2193,8 @@ function openSettings() {
   const rawEvts = state.customEvents || [];
   let evRows = '';
   rawEvts.forEach((ev, i) => {
-    // 跳过已废弃的旧 key
-    if (ev.key === 'char_pv' || ev.key === 'char_preview') return;
-    if (ev.key === 'banner' && Array.isArray(ev.offsets) && ev.offsets.length > 1) return;
+    // 跳过已废弃的旧 key（与 activeEvents 渲染源头一致）
+    if (ev.key === 'char_pv' || ev.key === 'char_preview' || ev.key === 'banner') return;
     const hidden = !!ev.hidden;
     const color = EVENT_COLORS[ev.key] || '#64748b';
     const offStr = (ev.offsets || []).join(', ');
