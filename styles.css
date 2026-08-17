@@ -462,13 +462,14 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
   pointer-events: none; opacity: .5;
 }
 .le-editable:hover .le-edit-hint { display: inline; }
-.le-cell-date { font-weight: 600; border: none !important; outline: none !important; box-shadow: none !important; text-decoration: none !important; }
+.le-cell-date { font-weight: 600; border: none !important; outline: 0 !important; box-shadow: none !important; text-decoration: none !important; }
 /* 爆料格内非标签子元素：清除横线来源（保留 .ev-char-tag 边框） */
-.le-editable > :not(.ev-char-tag):not(.le-edit-hint):not(.le-add-hint) { border: none !important; outline: none !important; box-shadow: none !important; text-decoration: none !important; }
-/* 终极清除：爆料格内 .muted 占位符（—）的横线 */
+.le-editable > :not(.ev-char-tag):not(.le-edit-hint):not(.le-add-hint) { border: 0 !important; outline: 0 !important; box-shadow: none !important; text-decoration: none !important; }
+/* 终极清除：爆料格内 .muted 占位符（—）的横线 —— 用 0 而非 none，彻底杀掉 outline */
 .le-editable > .muted,
 .le-editable > .muted::before,
-.le-editable > .muted::after { border: none !important; outline: none !important; box-shadow: none !important; text-decoration: none !important; text-decoration-line: none !important; border-bottom: none !important; background-image: none !important; }
+.le-editable > .muted::after,
+.le-editable .muted { border: 0 !important; outline: 0 !important; outline-width: 0 !important; outline-color: transparent !important; outline-style: none !important; box-shadow: none !important; text-decoration: none !important; text-decoration-line: none !important; border-bottom: 0 !important; background-image: none !important; }
 
 /* 内联编辑浮层 */
 .le-inline-editor {
