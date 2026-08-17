@@ -1251,17 +1251,9 @@ function renderList() {
         const origKey = def._origKey || def.key;
         const color = eventColor(origKey, group.ci ?? idx);
         const hid = isDefHidden(def);
-        // _tease 事件：动态从 charNames 取对应角色的备注名作为列标题（绑定卡池角色名）
-        let cellText = def.sub ? def.sub[idx] : def.name;
-        if (def._tease && def.charIndex != null && game.charNames) {
-          const ci = def.charIndex;
-          // 遍历所有版本找该角色索引的备注名，取第一个非空的
-          let resolvedName = '';
-          for (const k in game.charNames) {
-            if (k.endsWith('|' + ci) && game.charNames[k]) { resolvedName = game.charNames[k]; break; }
-          }
-          if (resolvedName) cellText = resolvedName;
-        }
+        // 表头文字：有 sub 用 sub（如"卡池"/"预告"/"PV"），否则用 def.name（如"新角色爆料·角色一"）
+        // 注意：爆料列保持固定名称，不绑定 charNames（备注名只显示在单元格内）
+        const cellText = def.sub ? def.sub[idx] : def.name;
         headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08${hid ? ';opacity:.35;text-decoration:line-through' : ''}">${escapeHtml(cellText)}</th>`;
       });
     });
