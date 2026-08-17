@@ -462,7 +462,7 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
   pointer-events: none; opacity: .5;
 }
 .le-editable:hover .le-edit-hint { display: inline; }
-.le-cell-date { font-weight: 600; }
+.le-cell-date { font-weight: 600; border: none !important; outline: none !important; text-decoration: none; }
 
 /* 内联编辑浮层 */
 .le-inline-editor {
