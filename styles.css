@@ -306,9 +306,15 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 }
 .le-group-drag { cursor: grab; user-select: none; transition: background 0.15s, transform 0.12s ease, box-shadow 0.12s ease; }
 .le-group-drag:active { cursor: grabbing; }
-/* 编辑模式下表头可点击改名 */
-.le-col-title { cursor: text !important; }
-.le-col-title:hover { text-decoration: underline dotted; }
+/* 编辑模式下表头改名：悬停浮现小铅笔按钮，避免与拖拽手势冲突 */
+.le-rename-btn {
+  display: inline-block; width: 16px; height: 16px; line-height: 14px; margin-left: 4px;
+  padding: 0; border: none; background: transparent; color: var(--text-soft);
+  opacity: 0; pointer-events: none; cursor: pointer; font-size: 11px; vertical-align: middle;
+  border-radius: 4px; transition: opacity .12s ease, background .12s ease, color .12s ease;
+}
+.ver-table.le-table th:hover .le-rename-btn { opacity: 1; pointer-events: auto; }
+.le-rename-btn:hover { background: var(--primary); color: #fff; }
 /* 组插入线样式见上方统一规则（.le-group-drag.drag-over-before / -after） */
 /* 拖起浮起效果：源单元格被「拎起」 */
 .le-col-drag.le-dragging, .le-group-drag.le-dragging {

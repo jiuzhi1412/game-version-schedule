@@ -1331,6 +1331,10 @@ function renderList() {
     // 第一行：分组标题（普通列 rowspan=2，角色组 colspan）
     // 辅助：判断事件定义是否被隐藏
     const isDefHidden = (d) => !!(d._hidden);
+    // 编辑模式：表头改名入口改为「悬停小铅笔按钮」，避免与拖拽手势冲突（不再整块可点）
+    const renameBtnHTML = (gId, key, kind) => editMode
+      ? `<button type="button" class="le-rename-btn" draggable="false" onmousedown="event.stopPropagation()" onclick="openColRenameEditor('${gId}','${escapeAttr(key)}','${kind}', this.closest('th'))" title="重命名此列">✏️</button>`
+      : '';
     let headRow1 = '<th rowspan="2">版本</th><th rowspan="2">更新</th>';
     groups.forEach(g => {
       const hid = g.cols.every(c => isDefHidden(c.def));
@@ -1340,15 +1344,11 @@ function renderList() {
         const c = g.cols[0];
         const origKey = c.def._origKey || c.def.key;
         const dName = (game.colDisplayNames && game.colDisplayNames[g.id]) || (c.def.name + (c.def.sub ? c.def.sub[c.idx] : ''));
-        const titleCls = editMode ? 'le-group-drag le-col-title' : 'le-group-drag';
-        const titleData = editMode ? ` data-game="${game.id}" data-rename-key="${escapeAttr(g.id)}" data-rename-kind="group"` : '';
-        headRow1 += `<th class="${titleCls}" data-col-key="${escapeAttr(g.id)}" rowspan="2" style="${hid ? 'opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}${titleData}>${grab}<span class="chip-dot" style="background:${eventColor(origKey, c.idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(dName)}</th>`;
+        headRow1 += `<th class="le-group-drag" data-col-key="${escapeAttr(g.id)}" rowspan="2" style="${hid ? 'opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${eventColor(origKey, c.idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(dName)}${renameBtnHTML(game.id, g.id, 'group')}</th>`;
       } else {
         const colSpan = g.cols.length;
         const dName = (game.colDisplayNames && game.colDisplayNames[g.id]) || g.label;
-        const titleCls = editMode ? 'char-group-head le-group-drag le-col-title' : 'char-group-head le-group-drag';
-        const titleData = editMode ? ` data-game="${game.id}" data-rename-key="${escapeAttr(g.id)}" data-rename-kind="group"` : '';
-        headRow1 += `<th colspan="${colSpan}" class="${titleCls}" data-col-key="${escapeAttr(g.id)}" style="background:${g.color}22;color:${g.color};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${g.color}44${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}${titleData}>${grab}<span class="chip-dot" style="background:${g.color};width:6px;height:6px"></span> ${escapeHtml(dName)}</th>`;
+        headRow1 += `<th colspan="${colSpan}" class="char-group-head le-group-drag" data-col-key="${escapeAttr(g.id)}" style="background:${g.color}22;color:${g.color};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${g.color}44${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${g.color};width:6px;height:6px"></span> ${escapeHtml(dName)}${renameBtnHTML(game.id, g.id, 'group')}</th>`;
       }
     });
     // 第二行：子列名（仅非单列的组才占第二行；编辑模式可拖拽，但只能在所属组内移动）
@@ -1362,9 +1362,9 @@ function renderList() {
         const cellText = col.def.sub ? col.def.sub[col.idx] : col.def.name;
         const dName = (game.colDisplayNames && game.colDisplayNames[col.colId]) || cellText;
         const dragAttrs = editMode
-          ? ` draggable="true" data-col-id="${escapeAttr(col.colId)}" data-group-id="${escapeAttr(g.id)}" data-col-key="${escapeAttr(col.colId)}" class="le-col-drag le-col-title" data-game="${game.id}" data-rename-key="${escapeAttr(col.colId)}" data-rename-kind="col"`
+          ? ` draggable="true" data-col-id="${escapeAttr(col.colId)}" data-group-id="${escapeAttr(g.id)}" data-col-key="${escapeAttr(col.colId)}" class="le-col-drag"`
           : '';
-        headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${dragAttrs}>${editMode ? '<span class="set-ev-grab" style="font-size:9px;margin-right:2px;opacity:.5">⠿</span>' : ''}${escapeHtml(dName)}</th>`;
+        headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${dragAttrs}>${editMode ? '<span class="set-ev-grab" style="font-size:9px;margin-right:2px;opacity:.5">⠿</span>' : ''}${escapeHtml(dName)}${renameBtnHTML(game.id, col.colId, 'col')}</th>`;
       });
     });
     const head = `<tr>${headRow1}</tr>${headRow2 ? '<tr>' + headRow2 + '</tr>' : ''}`;
@@ -1407,13 +1407,7 @@ function bindListEditCells() {
       openListCellEditor(gameId, tenths, cellType, hk, td);
     });
   });
-  // 表头大项/小项改名（编辑模式）
-  document.querySelectorAll('#view-list .le-col-title').forEach(th => {
-    th.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openColRenameEditor(th.dataset.game, th.dataset.renameKey, th.dataset.renameKind, th);
-    });
-  });
+  // 表头改名入口已改为悬停小铅笔按钮（见 renameBtnHTML），无需在此绑定 click
 }
 
 /** FLIP 落位过渡：拖拽完成后整列滑入新位置。
@@ -1473,6 +1467,7 @@ function bindColumnDrag() {
   // —— 拖拽源：仍绑在各 th（draggable 元素本身）——
   groupEls.forEach(th => {
     th.addEventListener('dragstart', e => {
+      if (e.target.closest && e.target.closest('.le-rename-btn')) return; // 改名按钮不触发拖拽
       _listDragSrc = { kind: 'group', groupId: th.dataset.groupId };
       _listDragSrcEl = th;
       e.dataTransfer.effectAllowed = 'move';
@@ -1484,6 +1479,7 @@ function bindColumnDrag() {
   });
   colEls.forEach(th => {
     th.addEventListener('dragstart', e => {
+      if (e.target.closest && e.target.closest('.le-rename-btn')) return; // 改名按钮不触发拖拽
       _listDragSrc = { kind: 'col', groupId: th.dataset.groupId, colId: th.dataset.colId };
       _listDragSrcEl = th;
       e.dataTransfer.effectAllowed = 'move';
