@@ -1133,10 +1133,11 @@ function renderList() {
     let rows = '';
 
     // 辅助函数：按 gEvts（与表头完全一致的顺序）渲染可见事件单元格，避免 v.events 遍历顺序差异导致列错位
-    const evMap = {};
-    v.events.forEach(ev => { evMap[ev.historyKey] = ev; });
     const renderEvCells = (v, editMode) => {
       let html = '';
+      // 预建 historyKey → 事件 映射，供按列顺序查找
+      const evMap = {};
+      v.events.forEach(ev => { evMap[ev.historyKey] = ev; });
       // 与表头遍历逻辑完全一致：gEvts → offsets → origKey+charIndex 拼接 key → 从 evMap 取单元格
       gEvts.forEach(def => {
         def.offsets.forEach((_, idx) => {
@@ -2284,12 +2285,12 @@ function openSettings() {
 
   // 角色事件分组（角色一/角色二/…，组内卡池/预告/PV 可排序）
   const charCount = (state.games && state.games[0] && state.games[0].charCount) || 2;
+  const CHARS = ['一', '二', '三', '四', '五', '六'];
   let charGroupHtml = '';
   if (charCount > 0) {
     const gOrder = (state.charGroupOrder || []).filter(i => i >= 0 && i < charCount);
     for (let i = 0; i < charCount; i++) if (!gOrder.includes(i)) gOrder.push(i);
     const sOrder = (state.charSubOrder && state.charSubOrder.length) ? state.charSubOrder : ['char_banner', 'char_preview', 'char_pv'];
-    const CHARS = ['一', '二', '三', '四', '五', '六'];
     const SUB_LABEL = { char_banner: '卡池', char_preview: '预告', char_pv: 'PV' };
     const SUB_OFF = { char_banner: 0, char_preview: -2, char_pv: -3 };
     gOrder.forEach(ci => {
