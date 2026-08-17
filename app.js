@@ -677,23 +677,23 @@ function offsetIsConfirmed(game, hk, tenths) {
 /** 偏移来源标记（纯色小圆点，图例在控制栏） */
 function offsetSrcDot(source) {
   if (!source || source === 'confirmed') {
-    return `<span class="off-dot off-dot-confirmed" title="你填的日期"></span>`;
+    return `<span class="off-dot off-dot-confirmed" title="你手动填写的日期"></span>`;
   }
   if (source === 'inherited') {
-    return `<span class="off-dot off-dot-inherited" title="沿用上次填的日期"></span>`;
+    return `<span class="off-dot off-dot-inherited" title="自动沿用你最近填过的日期"></span>`;
   }
   if (source === 'base') {
-    return `<span class="off-dot off-dot-base" title="全局基准"></span>`;
+    return `<span class="off-dot off-dot-base" title="使用全局基准偏移量"></span>`;
   }
-  return `<span class="off-dot off-dot-default" title="默认值"></span>`;
+  return `<span class="off-dot off-dot-default" title="系统默认偏移（无参考数据）"></span>`;
 }
 /** 偏移来源图例 HTML（放在列表视图控制栏） */
 function offsetLegendHtml() {
   return `<span class="off-legend" id="off-legend">` +
-    `<span class="off-dot off-dot-confirmed"></span><span class="muted" style="font-size:11px">你填</span>` +
-    `<span class="off-dot off-dot-inherited"></span><span class="muted" style="font-size:11px">沿用</span>` +
-    `<span class="off-dot off-dot-base"></span><span class="muted" style="font-size:11px">基准</span>` +
-    `<span class="off-dot off-dot-default"></span><span class="muted" style="font-size:11px">默认</span>` +
+    `<span class="off-dot off-dot-confirmed"></span><span class="muted" style="font-size:11px">你手动填写</span>` +
+    `<span class="off-dot off-dot-inherited"></span><span class="muted" style="font-size:11px">自动沿用</span>` +
+    `<span class="off-dot off-dot-base"></span><span class="muted" style="font-size:11px">全局基准</span>` +
+    `<span class="off-dot off-dot-default"></span><span class="muted" style="font-size:11px">系统默认</span>` +
     `</span>`;
 }
 /** 获取默认偏移量（不含逐版本覆盖，用于判断是否需要存储覆盖） */
