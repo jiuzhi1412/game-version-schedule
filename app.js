@@ -1558,10 +1558,12 @@ function captureColumnRects() {
   });
   return map;
 }
-function playColumnFlip(oldMap) {
+function playColumnFlip(oldMap, movedKey) {
   const moved = [];
   document.querySelectorAll('#view-list [data-col-key]').forEach(el => {
     const k = el.getAttribute('data-col-key');
+    // 只让被拖动的那一列滑动；其余列位置虽变，但瞬间归位，不播放动画（避免整表跟随移动）
+    if (movedKey && k !== movedKey) return;
     if (!(k in oldMap)) return;
     const dx = oldMap[k] - el.getBoundingClientRect().left;
     if (Math.abs(dx) < 1) return;
@@ -1679,7 +1681,7 @@ function bindColumnDrag() {
       arr.splice(_listInsSide === 'after' ? tIdx + 1 : tIdx, 0, srcId);
       state.listGroupOrder = arr;
       const snap = captureColumnRects();
-      saveLocalOnly(); playColumnFlip(snap); toast('分组顺序已调整');
+      saveLocalOnly(); playColumnFlip(snap, srcId); toast('分组顺序已调整');
     } else if (_listDragSrc && _listDragSrc.kind === 'col') {
       const srcGrp = _listDragSrc.groupId, srcCol = _listDragSrc.colId;
       const tGrp = cT && cT.dataset.groupId, tCol = cT && cT.dataset.colId;
@@ -1696,7 +1698,7 @@ function bindColumnDrag() {
       state.listSubOrder = state.listSubOrder || {};
       state.listSubOrder[srcGrp] = arr;
       const snap = captureColumnRects();
-      saveLocalOnly(); playColumnFlip(snap); toast('组内列顺序已调整');
+      saveLocalOnly(); playColumnFlip(snap, srcCol); toast('组内列顺序已调整');
     }
   });
   });
