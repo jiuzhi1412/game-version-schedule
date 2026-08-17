@@ -107,7 +107,8 @@ function gameActiveEvents(game) {
   const hiddenSet = new Set(hidden);
   const base = activeEvents().filter(e => e.hidden !== true);
   // 每个游戏用自己的 charCount 覆盖全局角色事件
-  const staticEvts = base.filter(e => !e._isChar);
+  // ⚠️ _tease 事件也必须排除（它们由 generateCharEvents 按游戏重新生成，不保留 activeEvents 的旧副本）
+  const staticEvts = base.filter(e => !e._isChar && !e._tease);
   const charCount = (game && game.charCount) || 2;
   const charEvts = generateCharEvents(charCount);
   return staticEvts.concat(charEvts).map(def => {
@@ -1106,11 +1107,12 @@ function listEvCellHTML(game, v, ev, editMode) {
     `<span class="le-edit-hint">✏️</span></td>`;
 }
 
-/** 新角色爆料列单元格：仅显示绑定目标版本的角色备注名（不显示日期） */
-function teaseCellHTML(def, remark, editMode) {
+/** 新角色爆料列单元格：显示绑定目标版本的角色备注名（可点击编辑） */
+function teaseCellHTML(def, remark, editMode, game, v, targetVer) {
   const ci = def.charIndex != null ? def.charIndex : 0;
   const color = eventColor('char_tease', ci);
   const hidden = !!def._hidden;
+  const targetLabel = targetVer ? targetVer.label || '—' : '—';
   if (hidden) {
     return editMode
       ? `<td class="vt-empty" title="新角色爆料·角色${ci + 1} 已隐藏">—</td>`
@@ -1119,8 +1121,12 @@ function teaseCellHTML(def, remark, editMode) {
   const tag = remark
     ? `<div class="ev-char-tag" style="background:${color}18;color:${color};border:1px solid ${color}44">${escapeHtml(remark)}</div>`
     : `<span class="muted">—</span>`;
-  // 爆料列绑定由全局 teaseVersionOffset 控制，单元格本身不可单独编辑
-  return `<td title="新角色爆料·角色${ci + 1}：显示未来版本对应角色备注名">${tag}</td>`;
+  // 爆料列可点击编辑：修改目标版本的角色备注名
+  return `<td class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}"` +
+    ` data-cell-type="tease" data-char-index="${ci}"` +
+    (targetVer ? ` data-target-tenths="${targetVer.tenths}"` : '') +
+    ` title="点击编辑：新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」的备注名">${tag}` +
+    `<span class="le-edit-hint">✏️</span></td>`;
 }
 
 function renderList() {
@@ -1213,7 +1219,7 @@ function renderList() {
           const ci = def.charIndex != null ? def.charIndex : idx;
           const remark = (targetVer && targetVer.tenths != null && game.charNames)
             ? (game.charNames[String(targetVer.tenths) + '|' + ci] || '') : '';
-          html += teaseCellHTML(def, remark, editMode);
+          html += teaseCellHTML(def, remark, editMode, game, v, targetVer);
         });
       });
       // 3. 角色分组列（每个角色的卡池/预告/PV 按组内顺序）
@@ -1409,6 +1415,26 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
         <button onclick="closeListCellEditor()">取消</button>
         <button class="primary" onclick="saveListUpdateDate('${gameId}', ${tenths})">保存</button>
       </div>`;
+  } else if (cellType === 'tease') {
+    // 新角色爆料编辑：修改目标版本的角色备注名
+    const ci = Number(cellEl.dataset.charIndex || 0);
+    const targetTenths = cellEl.dataset.targetTenths ? Number(cellEl.dataset.targetTenths) : null;
+    const targetVer = targetTenths != null ? genGameVersions(game).find(v => v.tenths === targetTenths) : null;
+    const targetLabel = targetVer ? targetVer.label : '（目标版本不存在）';
+    const cnKey = String(targetTenths) + '|' + ci;
+    const currentName = (targetTenths != null && game.charNames && game.charNames[cnKey]) || '';
+    const CHARS = ['一', '二', '三', '四', '五', '六'];
+    editor.innerHTML = `
+      <div class="le-editor-title"><span class="chip-dot" style="background:${eventColor('char_tease', ci)};display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle"></span> 新角色爆料·角色${CHARS[ci] || (ci+1)} → 绑定到「${escapeHtml(targetLabel)}」</div>
+      <div class="muted" style="font-size:11px;margin-bottom:8px">💡 此处填写的名称会显示在该游戏所有行的「新角色爆料·角色${CHARS[ci] || (ci+1)}」列中</div>
+      <div class="field">
+        <label>角色备注名</label>
+        <input type="text" id="le-tease-name" placeholder="如：奥黛塔、薇斯娜" value="${escapeHtml(currentName)}">
+      </div>
+      <div class="modal-actions">
+        <button onclick="closeListCellEditor()">取消</button>
+        <button class="primary" onclick="saveListTeaseEdit('${gameId}', ${targetTenths}, ${ci})">保存</button>
+      </div>`;
   } else {
     // 事件单元格编辑
     const ev = v.events.find(e => e.historyKey === hk);
@@ -1583,6 +1609,24 @@ window.saveListEvEdit = function(gameId, tenths, hk) {
   closeListCellEditor();
   saveAndRender();
   toast('已保存修改');
+};
+
+/** 保存新角色爆料编辑（目标版本的角色备注名） */
+window.saveListTeaseEdit = function(gameId, targetTenths, charIndex) {
+  const game = state.games.find(g => g.id === gameId);
+  if (!game) return;
+  const nameInput = document.getElementById('le-tease-name');
+  const nameVal = nameInput ? nameInput.value.trim() : '';
+  const cnKey = String(targetTenths) + '|' + charIndex;
+  if (!game.charNames) game.charNames = {};
+  if (nameVal) {
+    game.charNames[cnKey] = nameVal;
+  } else {
+    delete game.charNames[cnKey];
+  }
+  closeListCellEditor();
+  saveAndRender();
+  toast(nameVal ? '已保存备注名' : '已清除备注名');
 };
 
 /* ----------------------------- 列设置面板（按游戏隐藏/显示事件列） ----------------------------- */
