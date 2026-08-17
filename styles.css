@@ -281,19 +281,18 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 /* 列表视图表头列拖拽排序 */
 .le-col-drag { cursor: grab; user-select: none; transition: background 0.15s, transform 0.12s ease, box-shadow 0.12s ease; }
 .le-col-drag:active { cursor: grabbing; }
-/* 拖拽悬停：目标高亮 + 左/右插入线（按光标半区决定插前/插后，与落位逻辑一致） */
+/* 拖拽悬停：目标高亮 + 左/右插入线。
+   注意：<th> 是 display:table-cell，::after 伪元素在其上渲染不可靠（常被浏览器忽略），
+   故插入线改用 box-shadow inset 描边（与旧版下划线同一机制，稳定可见） */
 .le-col-drag.drag-over-before, .le-col-drag.drag-over-after,
 .le-group-drag.drag-over-before, .le-group-drag.drag-over-after {
   background: var(--primary-soft) !important;
-  position: relative;
 }
-.le-col-drag.drag-over-before::after, .le-group-drag.drag-over-before::after {
-  content: ''; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px;
-  background: var(--primary); box-shadow: 0 0 6px var(--primary); border-radius: 2px;
+.le-col-drag.drag-over-before, .le-group-drag.drag-over-before {
+  box-shadow: inset 4px 0 0 var(--primary), 0 0 10px var(--primary) !important;
 }
-.le-col-drag.drag-over-after::after, .le-group-drag.drag-over-after::after {
-  content: ''; position: absolute; right: -1px; top: -1px; bottom: -1px; width: 3px;
-  background: var(--primary); box-shadow: 0 0 6px var(--primary); border-radius: 2px;
+.le-col-drag.drag-over-after, .le-group-drag.drag-over-after {
+  box-shadow: inset -4px 0 0 var(--primary), 0 0 10px var(--primary) !important;
 }
 .le-group-drag { cursor: grab; user-select: none; transition: background 0.15s, transform 0.12s ease, box-shadow 0.12s ease; }
 .le-group-drag:active { cursor: grabbing; }
