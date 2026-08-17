@@ -1119,10 +1119,10 @@ function listEvCellHTML(game, v, ev, editMode) {
 }
 
 /** 新角色爆料列单元格：显示绑定目标版本的角色备注名 + 爆料事件日期（可点击编辑） */
-function teaseCellHTML(def, remark, editMode, game, v, targetVer, teaseDate) {
+function teaseCellHTML(def, remark, editMode, game, v, targetVer, teaseDate, verHidden) {
   const ci = def.charIndex != null ? def.charIndex : 0;
   const color = eventColor('char_tease', ci);
-  const hidden = !!def._hidden;
+  const hidden = verHidden || !!def._hidden;
   const targetLabel = targetVer ? targetVer.label || '—' : '—';
   if (hidden) {
     return editMode
@@ -1276,7 +1276,10 @@ function renderList() {
             const teaseEv = rowTarget.events.find(e => e.historyKey === ('char_tease_' + ci));
             teaseDate = teaseEv ? teaseEv.date : addDays(rowTarget.updateDate, TEASE_OFF);
           }
-          cell = teaseCellHTML(col.def, remark, editMode, game, v, rowTarget, teaseDate);
+          // 检查该版本是否隐藏了此爆料事件（per-version 隐藏 或 列级隐藏）
+          const teaseHk = 'char_tease_' + ci;
+          const verHidden = !!(game.verHiddenEvents && game.verHiddenEvents[String(v.tenths) + '|' + teaseHk]);
+          cell = teaseCellHTML(col.def, remark, editMode, game, v, rowTarget, teaseDate, verHidden);
         } else {
           const ev = lookupEv(col.def, col.idx);
           cell = ev ? listEvCellHTML(game, v, ev, editMode) : '<td></td>';
@@ -1665,18 +1668,25 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
       const d = teaseEv ? teaseEv.date : addDays(targetVer.updateDate, TEASE_OFF);
       currentDateStr = fmtDate(d);
     }
+    // 当前是否已隐藏（per-version）
+    const teaseHk = 'char_tease_' + ci;
+    const isHidden = targetTenths != null && !!(game.verHiddenEvents && game.verHiddenEvents[String(targetTenths) + '|' + teaseHk]);
     const CHARS = ['一', '二', '三', '四', '五', '六'];
     editor.innerHTML = `
       <div class="le-editor-title"><span class="chip-dot" style="background:${eventColor('char_tease', ci)};display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle"></span> 新角色爆料·角色${CHARS[ci] || (ci+1)} → 绑定到「${escapeHtml(targetLabel)}」</div>
       <div class="muted" style="font-size:11px;margin-bottom:8px">💡 此处填写的名称会显示在该游戏所有行的「新角色爆料·角色${CHARS[ci] || (ci+1)}」列中</div>
       <div class="field">
         <label>事件日期</label>
-        <input type="date" id="le-tease-date" value="${currentDateStr}">
+        <input type="date" id="le-tease-date" value="${currentDateStr}" ${isHidden ? 'disabled' : ''}>
       </div>
       <div class="field">
         <label>角色备注名</label>
-        <input type="text" id="le-tease-name" placeholder="如：奥黛塔、薇斯娜" value="${escapeHtml(currentName)}">
+        <input type="text" id="le-tease-name" placeholder="如：奥黛塔、薇斯娜" value="${escapeHtml(currentName)}" ${isHidden ? 'disabled' : ''}>
       </div>
+      <label class="le-hide-check">
+        <input type="checkbox" id="le-tease-hide" ${isHidden ? 'checked' : ''} />
+        <span>此版本无该事件（隐藏此单元格）</span>
+      </label>
       <div class="modal-actions">
         <button onclick="closeListCellEditor()">取消</button>
         <button class="primary" onclick="saveListTeaseEdit('${gameId}', ${targetTenths}, ${ci})">保存</button>
@@ -1904,6 +1914,27 @@ window.saveListEvEdit = function(gameId, tenths, hk) {
 window.saveListTeaseEdit = function(gameId, targetTenths, charIndex) {
   const game = state.games.find(g => g.id === gameId);
   if (!game) return;
+  const teaseHk = 'char_tease_' + charIndex;
+  const hideKey = String(targetTenths) + '|' + teaseHk;
+
+  // 处理「此版本无该事件」隐藏标志
+  const hideCb = document.getElementById('le-tease-hide');
+  const hideThis = hideCb ? hideCb.checked : false;
+  if (!game.verHiddenEvents) game.verHiddenEvents = {};
+  if (hideThis) {
+    game.verHiddenEvents[hideKey] = true;
+  } else {
+    delete game.verHiddenEvents[hideKey];
+  }
+
+  // 如果隐藏了，不需要保存日期/备注名
+  if (hideThis) {
+    closeListCellEditor();
+    saveAndRender();
+    toast('已隐藏该事件');
+    return;
+  }
+
   // 备注名
   const nameInput = document.getElementById('le-tease-name');
   const nameVal = nameInput ? nameInput.value.trim() : '';
@@ -1922,8 +1953,7 @@ window.saveListTeaseEdit = function(gameId, targetTenths, charIndex) {
     if (targetVer) {
       if (!game.verEventOffsets) game.verEventOffsets = {};
       const off = diffDays(parseDate(dateStr), targetVer.updateDate);
-      const hk = 'char_tease_' + charIndex;
-      game.verEventOffsets[String(targetTenths) + '|' + hk] = off;
+      game.verEventOffsets[String(targetTenths) + '|' + teaseHk] = off;
     }
   }
   closeListCellEditor();
