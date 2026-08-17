@@ -1453,7 +1453,7 @@ function bindColumnDrag() {
       try { e.dataTransfer.setData('text/plain', 'group:' + th.dataset.groupId); } catch(_) {}
       th.classList.add('le-dragging');
     });
-    th.addEventListener('dragend', () => { th.classList.remove('le-dragging'); document.querySelectorAll('#view-list .drag-over-before, #view-list .drag-over-after').forEach(x => x.classList.remove('drag-over-before', 'drag-over-after')); _listDragSrc = null; });
+    th.addEventListener('dragend', () => { th.classList.remove('le-dragging'); document.querySelectorAll('#view-list .drag-over-before, #view-list .drag-over-after').forEach(x => x.classList.remove('drag-over-before', 'drag-over-after')); hideDropLine(); _listDragSrc = null; });
   });
   colEls.forEach(th => {
     th.addEventListener('dragstart', e => {
@@ -1462,10 +1462,10 @@ function bindColumnDrag() {
       try { e.dataTransfer.setData('text/plain', 'col:' + th.dataset.groupId + ':' + th.dataset.colId); } catch(_) {}
       th.classList.add('le-dragging');
     });
-    th.addEventListener('dragend', () => { th.classList.remove('le-dragging'); document.querySelectorAll('#view-list .drag-over-before, #view-list .drag-over-after').forEach(x => x.classList.remove('drag-over-before', 'drag-over-after')); _listDragSrc = null; });
+    th.addEventListener('dragend', () => { th.classList.remove('le-dragging'); document.querySelectorAll('#view-list .drag-over-before, #view-list .drag-over-after').forEach(x => x.classList.remove('drag-over-before', 'drag-over-after')); hideDropLine(); _listDragSrc = null; });
   });
 
-  const clearOver = () => document.querySelectorAll('#view-list .drag-over-before, #view-list .drag-over-after').forEach(x => x.classList.remove('drag-over-before', 'drag-over-after'));
+  const clearOver = () => { document.querySelectorAll('#view-list .drag-over-before, #view-list .drag-over-after').forEach(x => x.classList.remove('drag-over-before', 'drag-over-after')); hideDropLine(); };
 
   // —— 事件委托：dragover / drop 绑到每个 thead，用 closest()/x 坐标定位目标（规避 colspan 子元素命中错乱）——
   theads.forEach(thead => {
@@ -1480,6 +1480,7 @@ function bindColumnDrag() {
         const r = tgt.getBoundingClientRect();
         _listInsSide = (e.clientX - r.left) < r.width / 2 ? 'before' : 'after';
         tgt.classList.add('drag-over-' + _listInsSide);
+        showDropLine(tgt, _listInsSide);
       }
     } else if (_listDragSrc.kind === 'col') {
       // 子列拖：仅同组且非自身；左半区=插前、右半区=插后
@@ -1489,6 +1490,7 @@ function bindColumnDrag() {
         const r = cT.getBoundingClientRect();
         _listInsSide = (e.clientX - r.left) < r.width / 2 ? 'before' : 'after';
         cT.classList.add('drag-over-' + _listInsSide);
+        showDropLine(cT, _listInsSide);
       }
     }
   });
@@ -1546,6 +1548,26 @@ function groupAtX(x) {
   });
   return found;
 }
+
+// —— 落点指示线浮层（绝对定位，贯穿整表高度，醒目且不受 <th> 渲染限制）——
+let _dropLineEl = null;
+function showDropLine(targetEl, side) {
+  const scroll = targetEl.closest('.calendar-scroll');
+  if (!scroll) return;
+  if (!_dropLineEl) {
+    _dropLineEl = document.createElement('div');
+    _dropLineEl.id = 'le-drop-line';
+    scroll.appendChild(_dropLineEl);
+  } else if (_dropLineEl.parentElement !== scroll) {
+    scroll.appendChild(_dropLineEl); // 多游戏时移动到当前滚动容器
+  }
+  const r = targetEl.getBoundingClientRect();
+  const sr = scroll.getBoundingClientRect();
+  const left = (side === 'after' ? r.right : r.left) - sr.left + scroll.scrollLeft;
+  _dropLineEl.style.left = left + 'px';
+  _dropLineEl.classList.add('show');
+}
+function hideDropLine() { if (_dropLineEl) _dropLineEl.classList.remove('show'); }
 
 /** 打开列表单元格的内联编辑弹窗 */
 let _leActiveCell = null; // 当前正在编辑的单元格 DOM

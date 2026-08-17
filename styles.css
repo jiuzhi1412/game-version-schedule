@@ -177,7 +177,7 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 .tl-event-mark:hover { filter: brightness(1.2); }
 
 /* ---------- Calendar ---------- */
-.calendar-scroll { overflow-x: auto; }
+.calendar-scroll { overflow-x: auto; position: relative; }
 .month { margin-bottom: 22px; }
 .month-title { font-weight: 700; font-size: 15px; margin: 4px 2px 10px; position: sticky; left: 0; }
 .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: 6px; min-width: 840px; }
@@ -281,18 +281,27 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 /* 列表视图表头列拖拽排序 */
 .le-col-drag { cursor: grab; user-select: none; transition: background 0.15s, transform 0.12s ease, box-shadow 0.12s ease; }
 .le-col-drag:active { cursor: grabbing; }
-/* 拖拽悬停：目标高亮 + 左/右插入线。
-   注意：<th> 是 display:table-cell，::after 伪元素在其上渲染不可靠（常被浏览器忽略），
-   故插入线改用 box-shadow inset 描边（与旧版下划线同一机制，稳定可见） */
+/* 拖拽悬停：目标单元格浅色高亮（落点指示线的浮层见 #le-drop-line，避免 table-cell 渲染怪癖） */
 .le-col-drag.drag-over-before, .le-col-drag.drag-over-after,
 .le-group-drag.drag-over-before, .le-group-drag.drag-over-after {
   background: var(--primary-soft) !important;
 }
-.le-col-drag.drag-over-before, .le-group-drag.drag-over-before {
-  box-shadow: inset 4px 0 0 var(--primary), 0 0 10px var(--primary) !important;
+/* 贯穿整表高度的落点指示线：绝对定位浮层，不受 <th> 渲染限制，醒目且位置精确 */
+#le-drop-line {
+  position: absolute; top: 0; bottom: 0; width: 4px; margin-left: -2px;
+  background: var(--primary); border-radius: 3px;
+  box-shadow: 0 0 8px 1px var(--primary); pointer-events: none;
+  opacity: 0; z-index: 40; transition: left .08s ease, opacity .12s ease;
 }
-.le-col-drag.drag-over-after, .le-group-drag.drag-over-after {
-  box-shadow: inset -4px 0 0 var(--primary), 0 0 10px var(--primary) !important;
+#le-drop-line.show { opacity: 1; animation: le-drop-pulse 0.9s ease-in-out infinite; }
+#le-drop-line::before { /* 顶部小三角，指向插入方向 */
+  content: ''; position: absolute; top: -1px; left: 50%; transform: translateX(-50%);
+  border-left: 5px solid transparent; border-right: 5px solid transparent;
+  border-top: 7px solid var(--primary);
+}
+@keyframes le-drop-pulse {
+  0%, 100% { box-shadow: 0 0 6px 1px var(--primary); }
+  50% { box-shadow: 0 0 13px 3px var(--primary); }
 }
 .le-group-drag { cursor: grab; user-select: none; transition: background 0.15s, transform 0.12s ease, box-shadow 0.12s ease; }
 .le-group-drag:active { cursor: grabbing; }
