@@ -358,6 +358,8 @@ function applyRemoteState(remote) {
   if (typeof state.listEditMode !== 'boolean') state.listEditMode = false;
   // listColumnOrder: 自定义列顺序（空数组=使用默认顺序；非空时按此数组排列列）
   if (!Array.isArray(state.listColumnOrder)) state.listColumnOrder = [];
+  if (!Array.isArray(state.listGroupOrder)) state.listGroupOrder = [];
+  if (typeof state.listSubOrder !== 'object' || !state.listSubOrder) state.listSubOrder = {};
   state.games.forEach(g => {
     migrateGame(g);
     // 清理 hiddenEventKeys 中已失效的 banner/banner_0/char_pv/char_preview 脏 key
@@ -496,8 +498,10 @@ async function restoreFromFile() {
     if (typeof state.listCount !== 'number') state.listCount = 8;
   if (typeof state.listPast !== 'number') state.listPast = 2;
     if (typeof state.showLabels !== 'boolean') state.showLabels = true;
-    if (typeof state.listEditMode !== 'boolean') state.listEditMode = false;
-    if (!Array.isArray(state.listColumnOrder)) state.listColumnOrder = [];
+  if (typeof state.listEditMode !== 'boolean') state.listEditMode = false;
+  if (!Array.isArray(state.listColumnOrder)) state.listColumnOrder = [];
+  if (!Array.isArray(state.listGroupOrder)) state.listGroupOrder = [];
+  if (typeof state.listSubOrder !== 'object' || !state.listSubOrder) state.listSubOrder = {};
     state.games.forEach(migrateGame);
     visibleGames = state.visibleGames || {};
     Storage.save(state); render(); updateBackupStatus();
@@ -594,6 +598,9 @@ async function init() {
   if (typeof state.teaseVersionOffset !== 'number' || state.teaseVersionOffset < 0) {
     state.teaseVersionOffset = 1;
   }
+  // 列表列顺序：listGroupOrder = 组顺序（第一行拖整组），listSubOrder = {组id: 组内子列顺序}（第二行子项仅组内拖）
+  if (!Array.isArray(state.listGroupOrder)) state.listGroupOrder = [];
+  if (typeof state.listSubOrder !== 'object' || !state.listSubOrder) state.listSubOrder = {};
   // 清除旧静态 char_preview/char_pv/banner（已改为按 charCount 动态生成或被角色一卡池替代，避免重复列）
   let changed = false;
   const cleaned = [];
@@ -1191,33 +1198,47 @@ function renderList() {
     });
     const teaseGroupDefs = teaseGroup.cols.length ? [teaseGroup] : [];
 
-    // 构建扁平有序列列表（用于 headRow2 子列名 + 数据单元格渲染 + 拖拽排序）
-    // 每项: { colId, type:'normal'|'tease'|'char', def, idx, groupCi? }
-    let flatCols = [];
-    normalCols.forEach(c => { flatCols.push({ ...c, colId: c.def.key, type: 'normal' }); });
+    // —— 统一分组模型（拖拽：第一行拖「整组」、第二行子项只能在「组内」拖） ——
+    // 每个顶层项 = 一个 group：普通列是单列为一组(singleton)，爆料/角色分组是含多子列的分组
+    const CHARS = ['一', '二', '三', '四', '五', '六'];
+    function mkCol(c, type, ci) {
+      if (type === 'tease') return { colId: 'tease_' + ci, type, def: c.def, idx: c.idx, groupCi: ci };
+      if (type === 'char') return { colId: (c.def._origKey || c.def.key) + '_' + ci, type, def: c.def, idx: c.idx, groupCi: ci };
+      return { colId: c.def.key, type: 'normal', def: c.def, idx: c.idx };
+    }
+    let groups = [];
+    normalCols.forEach(c => {
+      const col = mkCol(c, 'normal');
+      groups.push({ id: 'norm__' + col.colId, type: 'normal', singleton: true, label: c.def.name, color: eventColor(c.def._origKey || c.def.key, c.idx), cols: [col] });
+    });
     teaseGroupDefs.forEach(g => {
-      g.cols.forEach(c => {
-        const ci = c.def.charIndex != null ? c.def.charIndex : c.idx;
-        flatCols.push({ ...c, colId: 'tease_' + ci, type: 'tease', groupCi: ci });
-      });
+      const cols = g.cols.map(c => mkCol(c, 'tease', c.def.charIndex != null ? c.def.charIndex : c.idx));
+      groups.push({ id: 'tease', type: 'tease', singleton: false, label: '新角色爆料', color: eventColor('char_tease', 0), cols });
     });
     charGroupDefs.forEach(g => {
-      g.cols.forEach(c => {
-        flatCols.push({ ...c, colId: (c.def._origKey || c.def.key) + '_' + (c.def.charIndex ?? c.idx), type: 'char', groupCi: g.ci });
-      });
+      const cols = g.cols.map(c => mkCol(c, 'char', g.ci));
+      groups.push({ id: 'char__' + g.ci, type: 'char', singleton: false, label: g.label, color: eventColor(g.cols[0].def._origKey || g.cols[0].def.key, g.ci), charIndex: g.ci, cols });
     });
 
-    // 如果有自定义列顺序（listColumnOrder），按其重排（只保留仍存在的列ID，多余的忽略）
-    if (state.listColumnOrder && state.listColumnOrder.length > 0) {
-      const orderMap = {};
-      state.listColumnOrder.forEach((id, i) => { if (!orderMap[id]) orderMap[id] = i; });
-      const maxOrder = state.listColumnOrder.length;
-      flatCols.sort((a, b) => {
-        const oa = (orderMap[a.colId] != null) ? orderMap[a.colId] : maxOrder;
-        const ob = (orderMap[b.colId] != null) ? orderMap[b.colId] : maxOrder;
-        return oa - ob;
-      });
+    // 应用已保存的组顺序（第一行）与组内子顺序（第二行）
+    const grpOrder = (state.listGroupOrder && state.listGroupOrder.length) ? state.listGroupOrder : [];
+    if (grpOrder.length) {
+      const m = {}; grpOrder.forEach((id, i) => { if (!(id in m)) m[id] = i; });
+      const max = grpOrder.length;
+      groups.sort((a, b) => ((a.id in m ? m[a.id] : max) - (b.id in m ? m[b.id] : max)));
     }
+    groups.forEach(g => {
+      const sub = (state.listSubOrder && state.listSubOrder[g.id] && state.listSubOrder[g.id].length) ? state.listSubOrder[g.id] : null;
+      if (sub) {
+        const m = {}; sub.forEach((id, i) => { if (!(id in m)) m[id] = i; });
+        const max = sub.length;
+        g.cols.sort((a, b) => ((a.colId in m ? m[a.colId] : max) - (b.colId in m ? m[b.colId] : max)));
+      }
+    });
+
+    // 扁平有序列（表头/数据单元格/拖拽都按它），保证三者严格一致
+    const flatCols = [];
+    groups.forEach(g => g.cols.forEach(c => flatCols.push(c)));
 
     let rows = '';
 
@@ -1298,41 +1319,33 @@ function renderList() {
     // 辅助：判断事件定义是否被隐藏
     const isDefHidden = (d) => !!(d._hidden);
     let headRow1 = '<th rowspan="2">版本</th><th rowspan="2">更新</th>';
-    normalCols.forEach(({ def, idx }) => {
-      const origKey = def._origKey || def.key;
-      const hid = isDefHidden(def);
-      headRow1 += `<th rowspan="2" style="${hid ? 'opacity:.35;text-decoration:line-through' : ''}"><span class="chip-dot" style="background:${eventColor(origKey, idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(def.name + (def.sub ? def.sub[idx] : ''))}</th>`;
+    groups.forEach(g => {
+      const hid = g.cols.every(c => isDefHidden(c.def));
+      const gDrag = editMode ? ` draggable="true" data-group-id="${escapeAttr(g.id)}" class="le-group-drag"` : '';
+      const grab = editMode ? '<span class="set-ev-grab" style="font-size:9px;margin-right:2px;opacity:.5">⠿</span>' : '';
+      if (g.singleton) {
+        const c = g.cols[0];
+        const origKey = c.def._origKey || c.def.key;
+        headRow1 += `<th rowspan="2" style="${hid ? 'opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${eventColor(origKey, c.idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(c.def.name + (c.def.sub ? c.def.sub[c.idx] : ''))}</th>`;
+      } else {
+        const colSpan = g.cols.length;
+        headRow1 += `<th colspan="${colSpan}" class="char-group-head" style="background:${g.color}22;color:${g.color};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${g.color}44${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${g.color};width:6px;height:6px"></span> ${escapeHtml(g.label)}</th>`;
+      }
     });
-    // 新角色爆料独立块（紧跟普通列之后、角色分组之前，与数据单元格顺序一致）
-    teaseGroupDefs.forEach(group => {
-      const colSpan = group.cols.length;
-      const groupColor = eventColor('char_tease', 0);
-      const allHidden = group.cols.every(c => isDefHidden(c.def));
-      headRow1 += `<th colspan="${colSpan}" class="char-group-head" style="background:${groupColor}22;color:${groupColor};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${groupColor}44${allHidden ? ';opacity:.35;text-decoration:line-through' : ''}">
-        <span class="chip-dot" style="background:${groupColor};width:6px;height:6px"></span> ${escapeHtml(group.label)}
-      </th>`;
-    });
-    charGroupDefs.forEach(group => {
-      const colSpan = group.cols.length;
-      const firstDef = group.cols[0].def;
-      const firstOrigKey = firstDef._origKey || firstDef.key;
-      const groupColor = eventColor(firstOrigKey, group.ci);
-      const allHidden = group.cols.every(c => isDefHidden(c.def));
-      headRow1 += `<th colspan="${colSpan}" class="char-group-head" style="background:${groupColor}22;color:${groupColor};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${groupColor}44${allHidden ? ';opacity:.35;text-decoration:line-through' : ''}">
-        <span class="chip-dot" style="background:${groupColor};width:6px;height:6px"></span> ${escapeHtml(group.label)}
-      </th>`;
-    });
-    // 第二行：子列名（按 flatCols 顺序，编辑模式可拖拽排序）
+    // 第二行：子列名（仅非单列的组才占第二行；编辑模式可拖拽，但只能在所属组内移动）
     let headRow2 = '';
-    flatCols.forEach(col => {
-      const origKey = col.def._origKey || col.def.key;
-      const color = eventColor(origKey, col.groupCi ?? col.idx);
-      const hid = isDefHidden(col.def);
-      const cellText = col.def.sub ? col.def.sub[col.idx] : col.def.name;
-      const dragAttrs = editMode
-        ? ` draggable="true" data-col-id="${escapeAttr(col.colId)}" class="le-col-drag"`
-        : '';
-      headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${dragAttrs}>${editMode ? '<span class="set-ev-grab" style="font-size:9px;margin-right:2px;opacity:.5">⠿</span>' : ''}${escapeHtml(cellText)}</th>`;
+    groups.forEach(g => {
+      if (g.singleton) return; // 单列为一组不占第二行
+      g.cols.forEach(col => {
+        const origKey = col.def._origKey || col.def.key;
+        const color = eventColor(origKey, col.groupCi ?? col.idx);
+        const hid = isDefHidden(col.def);
+        const cellText = col.def.sub ? col.def.sub[col.idx] : col.def.name;
+        const dragAttrs = editMode
+          ? ` draggable="true" data-col-id="${escapeAttr(col.colId)}" data-group-id="${escapeAttr(g.id)}" class="le-col-drag"`
+          : '';
+        headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${dragAttrs}>${editMode ? '<span class="set-ev-grab" style="font-size:9px;margin-right:2px;opacity:.5">⠿</span>' : ''}${escapeHtml(cellText)}</th>`;
+      });
     });
     const head = `<tr>${headRow1}</tr>${headRow2 ? '<tr>' + headRow2 + '</tr>' : ''}`;
     // 编辑模式切换 + 列设置按钮（仅编辑模式显示）
@@ -1376,57 +1389,80 @@ function bindListEditCells() {
   });
 }
 
-/** 为编辑模式的列表表头绑定列拖拽排序事件 */
+/** 为编辑模式的列表表头绑定拖拽排序：
+ *   - 第一行(th.le-group-drag)：拖「整组」（含其下所有子列），组间自由重排
+ *   - 第二行(th.le-col-drag)：拖「子列」，但只能在本组内移动，不能跨组
+ * 用模块级 _listDragSrc 记录拖拽源，避免 dragover 中读取 dataTransfer 的限制。 */
+let _listDragSrc = null; // { kind:'group'|'col', groupId, colId }
 function bindColumnDrag() {
-  const headers = document.querySelectorAll('#view-list .le-col-drag');
-  if (!headers.length) return;
-  let dragSrcId = null;
-  headers.forEach(th => {
-    th.addEventListener('dragstart', (e) => {
-      dragSrcId = th.dataset.colId;
+  const groupEls = Array.from(document.querySelectorAll('#view-list .le-group-drag'));
+  const colEls = Array.from(document.querySelectorAll('#view-list .le-col-drag'));
+  if (!groupEls.length && !colEls.length) return;
+
+  // —— 组拖拽（第一行） ——
+  groupEls.forEach(th => {
+    th.addEventListener('dragstart', e => {
+      _listDragSrc = { kind: 'group', groupId: th.dataset.groupId };
       e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', dragSrcId);
+      e.dataTransfer.setData('text/plain', 'group:' + th.dataset.groupId);
       th.style.opacity = '0.4';
     });
-    th.addEventListener('dragend', () => {
-      th.style.opacity = '';
-      headers.forEach(h => h.classList.remove('drag-over'));
-      dragSrcId = null;
-    });
-    th.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      if (th.dataset.colId !== dragSrcId) th.classList.add('drag-over');
+    th.addEventListener('dragend', () => { th.style.opacity = ''; groupEls.forEach(x => x.classList.remove('drag-over')); _listDragSrc = null; });
+    th.addEventListener('dragover', e => {
+      if (_listDragSrc && _listDragSrc.kind === 'group' && _listDragSrc.groupId !== th.dataset.groupId) { e.preventDefault(); th.classList.add('drag-over'); }
     });
     th.addEventListener('dragleave', () => th.classList.remove('drag-over'));
-    th.addEventListener('drop', (e) => {
-      e.preventDefault();
-      th.classList.remove('drag-over');
-      const targetId = th.dataset.colId;
-      if (!dragSrcId || targetId === dragSrcId || !targetId) return;
-      // 更新 listColumnOrder：从 flatCols 当前顺序中找到 src 和 target 的位置并交换
-      // 先确保 listColumnOrder 与当前显示一致
-      const currentOrder = (state.listColumnOrder && state.listColumnOrder.length > 0)
-        ? [...state.listColumnOrder] : [];
-      // 如果当前 order 为空或与实际列不匹配，先从 DOM 收集实际顺序
-      const domOrder = Array.from(headers).map(h => h.dataset.colId);
-      if (currentOrder.length === 0 || !domOrder.every(id => currentOrder.includes(id))) {
-        state.listColumnOrder = [...domOrder];
+    th.addEventListener('drop', e => {
+      e.preventDefault(); th.classList.remove('drag-over');
+      if (!_listDragSrc || _listDragSrc.kind !== 'group') return;
+      const srcId = _listDragSrc.groupId, targetId = th.dataset.groupId;
+      if (srcId === targetId) return;
+      const order = groupEls.map(x => x.dataset.groupId); // DOM 当前顺序
+      const si = order.indexOf(srcId), ti = order.indexOf(targetId);
+      if (si < 0 || ti < 0) return;
+      order.splice(si, 1); order.splice(ti, 0, srcId);
+      state.listGroupOrder = order;
+      saveLocalOnly(); render(); toast('分组顺序已调整');
+    });
+  });
+
+  // —— 子列拖拽（第二行，组内约束） ——
+  colEls.forEach(th => {
+    th.addEventListener('dragstart', e => {
+      _listDragSrc = { kind: 'col', groupId: th.dataset.groupId, colId: th.dataset.colId };
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', 'col:' + th.dataset.groupId + ':' + th.dataset.colId);
+      th.style.opacity = '0.4';
+    });
+    th.addEventListener('dragend', () => { th.style.opacity = ''; colEls.forEach(x => x.classList.remove('drag-over')); _listDragSrc = null; });
+    th.addEventListener('dragover', e => {
+      // 仅允许同组目标：跨组禁止（满足「子项只能在所在大项里移动」）
+      if (_listDragSrc && _listDragSrc.kind === 'col' && _listDragSrc.groupId === th.dataset.groupId && _listDragSrc.colId !== th.dataset.colId) {
+        e.preventDefault(); th.classList.add('drag-over');
       }
-      // 在 order 中交换 src 和 target
-      const arr = state.listColumnOrder;
-      const si = arr.indexOf(dragSrcId);
-      const ti = arr.indexOf(targetId);
-      if (si >= 0 && ti >= 0) {
-        arr.splice(si, 1);
-        arr.splice(ti, 0, dragSrcId);
-        saveLocalOnly();
-        render(); // 重渲染以应用新顺序
-        toast('列顺序已调整');
-      }
+    });
+    th.addEventListener('dragleave', () => th.classList.remove('drag-over'));
+    th.addEventListener('drop', e => {
+      e.preventDefault(); th.classList.remove('drag-over');
+      if (!_listDragSrc || _listDragSrc.kind !== 'col') return;
+      const srcGrp = _listDragSrc.groupId, srcCol = _listDragSrc.colId;
+      const targetGrp = th.dataset.groupId, targetCol = th.dataset.colId;
+      if (srcGrp !== targetGrp || srcCol === targetCol) return; // 跨组禁止
+      // 从 DOM 收集该组当前子列顺序（已反映当前显示）
+      const domCols = Array.from(document.querySelectorAll('#view-list .le-col-drag[data-group-id="' + cssEscapeAttr(srcGrp) + '"]')).map(x => x.dataset.colId);
+      const sub = (state.listSubOrder && state.listSubOrder[srcGrp] && state.listSubOrder[srcGrp].length) ? [...state.listSubOrder[srcGrp]] : domCols;
+      const si = sub.indexOf(srcCol), ti = sub.indexOf(targetCol);
+      if (si < 0 || ti < 0) return;
+      sub.splice(si, 1); sub.splice(ti, 0, srcCol);
+      state.listSubOrder = state.listSubOrder || {};
+      state.listSubOrder[srcGrp] = sub;
+      saveLocalOnly(); render(); toast('组内列顺序已调整');
     });
   });
 }
+
+/** 转义用于 querySelector 属性选择器的字符串（组id含下划线，无特殊字符，这里做兜底） */
+function cssEscapeAttr(s) { return String(s).replace(/["\\]/g, '\\$&'); }
 
 /** 打开列表单元格的内联编辑弹窗 */
 let _leActiveCell = null; // 当前正在编辑的单元格 DOM
