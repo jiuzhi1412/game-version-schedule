@@ -1473,8 +1473,8 @@ function bindColumnDrag() {
     if (!_listDragSrc) return;
     clearOver();
     if (_listDragSrc.kind === 'group') {
-      // 组拖：按光标 x 命中所在分组块（跨两行也生效），左半区=插前、右半区=插后
-      const tgt = groupAtX(e.clientX);
+      // 组拖：直接命中分组块优先，光标在子列区时退回按 x 命中整块（跨两行也生效）
+      const tgt = e.target.closest('.le-group-drag') || groupAtX(e.clientX);
       if (tgt && tgt.dataset.groupId && tgt.dataset.groupId !== _listDragSrc.groupId) {
         e.preventDefault();
         const r = tgt.getBoundingClientRect();
