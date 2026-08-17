@@ -2732,6 +2732,7 @@ function showOffsetSummary() {
     `<p class="muted" style="font-size:12px;margin-top:8px">🟢你亲手填的日期（确定的数据）· 🟡沿用 = 取你最近一次填的同一事件真实偏移（<b>未做平均，不会出现虚假的中间值</b>）· ⚪默认 = 代码写死（如爆料=33天）</p>`;
   document.getElementById('modal-title').textContent = '🧮 偏移计算汇总';
   document.getElementById('modal-body').innerHTML = body;
+  document.getElementById('modal-save').onclick = () => { hideModal(); toast('已查看'); };
   showModal();
 }
 
