@@ -1090,6 +1090,8 @@ function renderList() {
 
     // 该游戏可见的事件列（全局 + 按游戏隐藏过滤后）
     const gEvts = gameActiveEvents(game);
+    // 🔍 诊断：打印列表视图实际渲染的事件列（定位"卡池更新上半"来源）
+    console.log('[GVS] 🔍 列表视图事件列 (game=' + (game&&game.id) + '):', gEvts.map(e => ({key:e.key, name:e.name, sub:e.sub, _isChar:e._isChar, charIndex:e.charIndex, _hidden:e._hidden})));
     // 构建可见事件 key 集合，用于过滤每行的事件单元格
     const visibleEvKeys = new Set();
     gEvts.forEach(def => {
