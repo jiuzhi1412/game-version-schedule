@@ -462,7 +462,9 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
   pointer-events: none; opacity: .5;
 }
 .le-editable:hover .le-edit-hint { display: inline; }
-.le-cell-date { font-weight: 600; border: none !important; outline: none !important; text-decoration: none; }
+.le-cell-date { font-weight: 600; border: none !important; outline: none !important; box-shadow: none !important; text-decoration: none !important; }
+/* 爆料格内非标签子元素：清除横线来源（保留 .ev-char-tag 边框） */
+.le-editable > :not(.ev-char-tag):not(.le-edit-hint):not(.le-add-hint) { border: none !important; outline: none !important; box-shadow: none !important; text-decoration: none !important; }
 
 /* 内联编辑浮层 */
 .le-inline-editor {
