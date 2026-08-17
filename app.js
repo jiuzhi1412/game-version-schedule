@@ -1272,84 +1272,12 @@ function renderList() {
   const list = state.games.filter(g => visibleGames[g.id] !== false);
   const editMode = !!state.listEditMode;
   if (!list.length) { host.innerHTML = '<p class="muted">暂无游戏</p>'; return; }
-  // ===== PHASE 0: 构建统一的列结构（所有游戏共享同一表头，确保竖向对齐） =====
-  // 取所有可见游戏的 charCount 最大值，生成完整事件并集
-  const maxCharCount = Math.max(1, ...list.map(g => (g.charCount || 2)));
-  const baseStatic = activeEvents().filter(e => e.hidden !== true && !e._isChar && !e._tease);
-  const baseCharEvts = generateCharEvents(maxCharCount);
-  const masterGEvts = baseStatic.concat(baseCharEvts).filter(e => e.key !== 'version_update');
 
-  // 从 masterGEvts 构建分组（与原逻辑相同，但基于完整并集）
-  const mCharGroupDefs = []; // { ci, label, cols: [{def, idx}] }
-  const mTeaseGroup = { ci: -1, label: '新角色爆料', cols: [] };
-  const mNormalCols = [];
-  masterGEvts.forEach((def) => {
-    def.offsets.forEach((o, idx) => {
-      if (def._tease) {
-        mTeaseGroup.cols.push({ def, idx });
-      } else if (def._isChar) {
-        const ci = def.charIndex ?? 0;
-        let group = mCharGroupDefs.find(g => g.ci === ci);
-        if (!group) {
-          const CHARS = ['一', '二', '三', '四', '五', '六'];
-          group = { ci, label: '角色' + (CHARS[ci] || (ci + 1)), cols: [] };
-          mCharGroupDefs.push(group);
-        }
-        group.cols.push({ def, idx });
-      } else {
-        mNormalCols.push({ def, idx });
-      }
-    });
-  });
-  const mTeaseGroupDefs = mTeaseGroup.cols.length ? [mTeaseGroup] : [];
-
-  const CHARS = ['一', '二', '三', '四', '五', '六'];
-  function mkCol(c, type, ci) {
-    if (type === 'tease') return { colId: 'tease_' + ci, type, def: c.def, idx: c.idx, groupCi: ci };
-    if (type === 'char') return { colId: (c.def._origKey || c.def.key) + '_' + ci, type, def: c.def, idx: c.idx, groupCi: ci };
-    return { colId: c.def.key, type: 'normal', def: c.def, idx: c.idx };
-  }
-  let masterGroups = [];
-  mNormalCols.forEach(c => {
-    const col = mkCol(c, 'normal');
-    masterGroups.push({ id: 'norm__' + col.colId, type: 'normal', singleton: true, label: c.def.name, color: eventColor(c.def._origKey || c.def.key, c.idx), cols: [col] });
-  });
-  mTeaseGroupDefs.forEach(g => {
-    const cols = g.cols.map(c => mkCol(c, 'tease', c.def.charIndex != null ? c.def.charIndex : c.idx));
-    masterGroups.push({ id: 'tease', type: 'tease', singleton: false, label: '新角色爆料', color: eventColor('char_tease', 0), cols });
-  });
-  mCharGroupDefs.forEach(g => {
-    const cols = g.cols.map(c => mkCol(c, 'char', g.ci));
-    masterGroups.push({ id: 'char__' + g.ci, type: 'char', singleton: false, label: g.label, color: eventColor(g.cols[0].def._origKey || g.cols[0].def.key, g.ci), charIndex: g.ci, cols });
-  });
-
-  // 应用全局组顺序与子顺序
-  const grpOrder = (state.listGroupOrder && state.listGroupOrder.length) ? state.listGroupOrder : [];
-  if (grpOrder.length) {
-    const m = {}; grpOrder.forEach((id, i) => { if (!(id in m)) m[id] = i; });
-    const maxO = grpOrder.length;
-    masterGroups.sort((a, b) => ((a.id in m ? m[a.id] : maxO) - (b.id in m ? m[b.id] : maxO)));
-  }
-  masterGroups.forEach(g => {
-    const sub = (state.listSubOrder && state.listSubOrder[g.id] && state.listSubOrder[g.id].length) ? state.listSubOrder[g.id] : null;
-    if (sub) {
-      const m = {}; sub.forEach((id, i) => { if (!(id in m)) m[id] = i; });
-      const maxO = sub.length;
-      g.cols.sort((a, b) => ((a.colId in m ? m[a.colId] : maxO) - (b.colId in m ? m[b.colId] : maxO)));
-    }
-  });
-
-  // 扁平有序列（所有游戏共用）
-  const masterFlatCols = [];
-  masterGroups.forEach(g => g.cols.forEach(c => masterFlatCols.push(c)));
-  const masterTotalCols = 1 + masterFlatCols.length; // 1 = 版本列
-
-  // 编辑模式：表头改名入口
+  // 编辑模式：表头改名入口（所有游戏共用）
   const renameBtnHTML = (gId, key, kind) => editMode
     ? `<button type="button" class="le-rename-btn" draggable="false" onmousedown="event.stopPropagation()" onclick="openColRenameEditor('${gId}','${escapeAttr(key)}','${kind}', this.closest('th'))" title="重命名此列">✏️</button>`
     : '';
 
-  // ===== PHASE 1: 用统一结构渲染每个游戏 =====
   list.forEach(game => {
     // 列表视图使用独立范围，不受"视图起始/结束"限制
     const lp = state.listPast || 2, lc = state.listCount || 8;
@@ -1367,25 +1295,79 @@ function renderList() {
     const teaseOff = state.teaseVersionOffset || 0;
     const allSorted = sorted;
 
-    // 该游戏自己的活跃事件（用于 cell 数据查找，不再决定列结构）
+    // 该游戏可见的事件列（全局 + 按游戏隐藏过滤后）
     const gEvts = gameActiveEvents(game).filter(e => e.key !== 'version_update');
 
-    // 构建该游戏的事件查找映射（colId → {def, idx}），用于快速判断某列是否有数据
-    const gEvtLookup = {}; // colId → {def, idx}
-    gEvts.forEach(def => {
+    const cols = 1 + gEvts.reduce((a, d) => a + d.offsets.length, 0);
+
+    // 构建分组表头数据（用于 headRow1 的分组行，含 colspan）
+    const charGroupDefs = [];
+    const teaseGroup = { ci: -1, label: '新角色爆料', cols: [] };
+    const normalCols = [];
+    gEvts.forEach((def) => {
       def.offsets.forEach((o, idx) => {
-        const origKey = def._origKey || def.key;
-        const cid = origKey + (def.charIndex != null ? '_' + def.charIndex : (def.offsets.length > 1 ? '_' + idx : ''));
-        gEvtLookup[cid] = { def, idx };
+        if (def._tease) {
+          teaseGroup.cols.push({ def, idx });
+        } else if (def._isChar) {
+          const ci = def.charIndex ?? 0;
+          let group = charGroupDefs.find(g => g.ci === ci);
+          if (!group) {
+            const CHARS = ['一', '二', '三', '四', '五', '六'];
+            group = { ci, label: '角色' + (CHARS[ci] || (ci + 1)), cols: [] };
+            charGroupDefs.push(group);
+          }
+          group.cols.push({ def, idx });
+        } else {
+          normalCols.push({ def, idx });
+        }
       });
     });
+    const teaseGroupDefs = teaseGroup.cols.length ? [teaseGroup] : [];
 
-    // 辅助：判断该游戏是否隐藏了某个定义
-    const isDefHiddenForGame = (d) => !!(d._hidden);
+    // —— 统一分组模型（拖拽：第一行拖「整组」、第二行子项只能在「组内」拖） ——
+    const CHARS = ['一', '二', '三', '四', '五', '六'];
+    function mkCol(c, type, ci) {
+      if (type === 'tease') return { colId: 'tease_' + ci, type, def: c.def, idx: c.idx, groupCi: ci };
+      if (type === 'char') return { colId: (c.def._origKey || c.def.key) + '_' + ci, type, def: c.def, idx: c.idx, groupCi: ci };
+      return { colId: c.def.key, type: 'normal', def: c.def, idx: c.idx };
+    }
+    let groups = [];
+    normalCols.forEach(c => {
+      const col = mkCol(c, 'normal');
+      groups.push({ id: 'norm__' + col.colId, type: 'normal', singleton: true, label: c.def.name, color: eventColor(c.def._origKey || c.def.key, c.idx), cols: [col] });
+    });
+    teaseGroupDefs.forEach(g => {
+      const cols = g.cols.map(c => mkCol(c, 'tease', c.def.charIndex != null ? c.def.charIndex : c.idx));
+      groups.push({ id: 'tease', type: 'tease', singleton: false, label: '新角色爆料', color: eventColor('char_tease', 0), cols });
+    });
+    charGroupDefs.forEach(g => {
+      const cols = g.cols.map(c => mkCol(c, 'char', g.ci));
+      groups.push({ id: 'char__' + g.ci, type: 'char', singleton: false, label: g.label, color: eventColor(g.cols[0].def._origKey || g.cols[0].def.key, g.ci), charIndex: g.ci, cols });
+    });
+
+    // 应用已保存的组顺序（第一行）与组内子顺序（第二行）
+    const grpOrder = (state.listGroupOrder && state.listGroupOrder.length) ? state.listGroupOrder : [];
+    if (grpOrder.length) {
+      const m = {}; grpOrder.forEach((id, i) => { if (!(id in m)) m[id] = i; });
+      const max = grpOrder.length;
+      groups.sort((a, b) => ((a.id in m ? m[a.id] : max) - (b.id in m ? m[b.id] : max)));
+    }
+    groups.forEach(g => {
+      const sub = (state.listSubOrder && state.listSubOrder[g.id] && state.listSubOrder[g.id].length) ? state.listSubOrder[g.id] : null;
+      if (sub) {
+        const m = {}; sub.forEach((id, i) => { if (!(id in m)) m[id] = i; });
+        const max = sub.length;
+        g.cols.sort((a, b) => ((a.colId in m ? m[a.colId] : max) - (b.colId in m ? b.colId : max)));
+      }
+    });
+
+    // 扁平有序列（表头/数据单元格/拖拽都按它），保证三者严格一致
+    const flatCols = [];
+    groups.forEach(g => g.cols.forEach(c => flatCols.push(c)));
 
     let rows = '';
 
-    // 按统一 masterFlatCols 顺序渲染事件单元格（与表头严格一一对应）
+    // 辅助函数：按 flatCols 顺序渲染可见事件单元格（与表头严格一一对应）
     const renderEvCells = (v, editMode) => {
       let html = '';
       const evMap = {};
@@ -1396,23 +1378,10 @@ function renderList() {
         const hk = origKey + (needsSuffix ? '_' + (def.charIndex != null ? def.charIndex : idx) : '');
         return evMap[hk];
       };
-      masterFlatCols.forEach(col => {
-        // 检查该游戏是否有此列的数据
-        const hasData = !!gEvtLookup[col.colId];
+      // 按 flatCols 统一遍历（与 headRow2 完全一致）
+      flatCols.forEach(col => {
         let cell;
-        if (!hasData) {
-          // 该游戏没有此事件 → 编辑模式显示可点击占位（保持列对齐），普通模式空白
-          if (!editMode) {
-            cell = '<td></td>';
-          } else {
-            const origKey = col.def._origKey || col.def.key;
-            const cellText = col.def.sub ? col.def.sub[col.idx] : col.def.name;
-            cell = `<td class="le-editable vt-empty" data-game="${game.id}" data-tenths="${v.tenths}"` +
-              ` data-hk="${escapeAttr(origKey + (col.def.charIndex != null ? '_' + col.def.charIndex : (col.def.offsets.length > 1 ? '_' + col.idx : '')))}"` +
-              ` data-ev-name="${escapeAttr(cellText)}" title="点击填写：${escapeAttr(cellText)}">` +
-              `<span class="le-add-hint">＋ 填写</span></td>`;
-          }
-        } else if (col.type === 'tease') {
+        if (col.type === 'tease') {
           const ci = col.def.charIndex != null ? col.def.charIndex : col.idx;
           const vIdx = allSorted.findIndex(sv => sv.tenths === v.tenths);
           const rowTarget = (vIdx >= 0 && teaseOff > 0 && allSorted[vIdx + teaseOff])
@@ -1436,6 +1405,7 @@ function renderList() {
           } else if (!editMode) {
             cell = '<td></td>';
           } else {
+            // 编辑模式：没有数据的格子也显示可点击占位符（ax fix）
             const origKey = col.def._origKey || col.def.key;
             const cellText = col.def.sub ? col.def.sub[col.idx] : col.def.name;
             cell = `<td class="le-editable vt-empty" data-game="${game.id}" data-tenths="${v.tenths}"` +
@@ -1444,11 +1414,14 @@ function renderList() {
               `<span class="le-add-hint">＋ 填写</span></td>`;
           }
         }
+        // 整列 FLIP：给该列每个单元格打同列 key（分组共享 → 整块同移动）
         html += cell.replace(/^<td/, `<td data-col-key="${escapeAttr(col.colId)}"`);
       });
       return html;
     };
 
+    // 渲染顺序：更早历史(灰) → —今天— → 📍当前版本(高亮) → 未来(正常)
+    // 两行布局：第1行=版本号（突出），第2行=日期+倒计时（小字）
     const verDateTd = (v, isCurrent) => {
       const prefix = isCurrent ? '📍 ' : '';
       const dateStr = fmtDate(v.updateDate);
@@ -1467,30 +1440,33 @@ function renderList() {
         `<div style="font-size:15px;font-weight:600;line-height:1.4">${prefix}${v.label}</div>` +
         `<div class="muted" style="font-size:11px;line-height:1.3">(${dateStr} · ${cdTxt})</div></td>`;
     };
-
+    // ---- 更早的历史版本 ----
     olderVersions.forEach(v => {
       rows += `<tr class="vt-past">${verDateTd(v, false)}`;
       rows += renderEvCells(v, editMode);
       rows += `</tr>`;
     });
+    // ---- 分隔线 ----
     if ((olderVersions.length > 0 || currentVer) && futureN.length > 0) {
-      rows += `<tr class="vt-divider"><td colspan="${masterTotalCols}">— 今天 —</td></tr>`;
+      rows += `<tr class="vt-divider"><td colspan="${cols}">— 今天 —</td></tr>`;
     }
+    // ---- 当前版本（高亮） ----
     if (currentVer) {
       rows += `<tr class="vt-current">${verDateTd(currentVer, true)}`;
       rows += renderEvCells(currentVer, editMode);
       rows += `</tr>`;
     }
+    // ---- 未来版本 ----
     futureN.forEach(v => {
       rows += `<tr>${verDateTd(v, false)}`;
       rows += renderEvCells(v, editMode);
       rows += `</tr>`;
     });
-
-    // 表头：使用统一的 masterGroups 结构（所有游戏完全相同的列布局）
+    // 第一行：分组标题（普通列 rowspan=2，角色组 colspan）
+    const isDefHidden = (d) => !!(d._hidden);
     let headRow1 = '<th rowspan="2">版本</th>';
-    masterGroups.forEach(g => {
-      const hid = g.cols.every(c => isDefHiddenForGame(c.def));
+    groups.forEach(g => {
+      const hid = g.cols.every(c => isDefHidden(c.def));
       const gDrag = editMode ? ` draggable="true" data-group-id="${escapeAttr(g.id)}"` : '';
       const grab = editMode ? '<span class="set-ev-grab" style="font-size:9px;margin-right:2px;opacity:.5">⠿</span>' : '';
       if (g.singleton) {
@@ -1504,13 +1480,14 @@ function renderList() {
         headRow1 += `<th colspan="${colSpan}" class="char-group-head le-group-drag" data-col-key="${escapeAttr(g.id)}" style="background:${g.color}22;color:${g.color};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${g.color}44${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${g.color};width:6px;height:6px"></span> ${escapeHtml(dName)}${renameBtnHTML(game.id, g.id, 'group')}</th>`;
       }
     });
+    // 第二行：子列名（仅非单列的组才占第二行；编辑模式可拖拽，但只能在所属组内移动）
     let headRow2 = '';
-    masterGroups.forEach(g => {
+    groups.forEach(g => {
       if (g.singleton) return;
       g.cols.forEach(col => {
         const origKey = col.def._origKey || col.def.key;
         const color = eventColor(origKey, col.groupCi ?? col.idx);
-        const hid = isDefHiddenForGame(col.def);
+        const hid = isDefHidden(col.def);
         const cellText = col.def.sub ? col.def.sub[col.idx] : col.def.name;
         const dName = (game.colDisplayNames && game.colDisplayNames[col.colId]) || cellText;
         const dragAttrs = editMode
@@ -1520,15 +1497,7 @@ function renderList() {
       });
     });
     const head = `<tr>${headRow1}</tr>${headRow2 ? '<tr>' + headRow2 + '</tr>' : ''}`;
-
-    // 构建 colgroup（固定列宽模板，确保所有表格列宽完全一致）
-    let colgroup = '<col style="width:90px">'; // 版本列固定宽度
-    masterFlatCols.forEach(col => {
-      // 角色分组内的列稍宽（含日期+圆点+标签），普通列适中
-      const w = (col.type === 'char' || col.type === 'tease') ? '100px' : '88px';
-      colgroup += `<col style="width:${w}">`;
-    });
-
+    // 编辑模式切换 + 列设置按钮（仅编辑模式显示）
     const editBtn = `<button class="vc-btn ${editMode ? 'le-btn-on' : ''}" onclick="toggleListEditMode()" style="margin-left:8px;${editMode ? 'background:var(--primary);color:#fff;border-color:var(--primary)' : ''}">${editMode ? '✏️ 修改中' : '✏️ 修改'}</button>`;
     const colBtn = editMode
       ? `<button class="vc-btn" onclick="openColSettings('${game.id}', this)" title="设置显示/隐藏的列">⚙️ 列</button>`
@@ -1542,13 +1511,12 @@ function renderList() {
       `${editBtn}${colBtn}${hiddenHint}` +
       `<button class="ghost" style="margin-left:auto;font-size:12px" onclick="showOffsetSummary('${game.id}')">🧮 偏移</button>` +
       `<button class="ghost" onclick="openGameModal('${game.id}')">编辑游戏</button></div>` +
-      `<div class="calendar-scroll"><table class="ver-table ${editMode ? 'le-table' : ''}" style="table-layout:fixed">${colgroup}<thead>${head}</thead><tbody>${rows}</tbody></table></div></div>`;
+      `<div class="calendar-scroll"><table class="ver-table ${editMode ? 'le-table' : ''}"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
   });
   host.innerHTML = html;
   // 编辑模式下绑定单元格点击事件
   if (editMode) { bindListEditCells(); bindColumnDrag(); }
 }
-
 /** 切换列表编辑模式 */
 function toggleListEditMode() {
   state.listEditMode = !state.listEditMode;
