@@ -1127,25 +1127,25 @@ function renderList() {
       headTexts.push(def.name + (def.sub ? def.sub[idx] : '') + ' [key=' + def.key + (def.charIndex!=null?('_'+def.charIndex):'') + ']');
     }));
     console.log('[GVS] 🔍 列表视图实际表头文字 (game=' + (game&&game.id) + '): ' + headTexts.join(' | '));
-    // 构建可见事件 key 集合，用于过滤每行的事件单元格
-    const visibleEvKeys = new Set();
-    gEvts.forEach(def => {
-      def.offsets.forEach((_, idx) => {
-        const origKey = def._origKey || def.key;
-        visibleEvKeys.add(origKey + '_' + (def.charIndex != null ? def.charIndex : idx));
-      });
-    });
+    // 构建可见事件 key 集合，用于过滤每行的事件单元格（cols 计算仍需要）
 
     const cols = 2 + gEvts.reduce((a, d) => a + d.offsets.length, 0);
     let rows = '';
 
-    // 辅助函数：只渲染可见事件列的单元格
+    // 辅助函数：按 gEvts（与表头完全一致的顺序）渲染可见事件单元格，避免 v.events 遍历顺序差异导致列错位
+    const evMap = {};
+    v.events.forEach(ev => { evMap[ev.historyKey] = ev; });
     const renderEvCells = (v, editMode) => {
       let html = '';
-      v.events.forEach(ev => {
-        const ek = ev.defKey + '_' + (ev.charIndex != null ? ev.charIndex : (ev.sub ?? 0));
-        if (!visibleEvKeys.has(ek)) return; // 该游戏隐藏了此列
-        html += listEvCellHTML(game, v, ev, editMode);
+      // 与表头遍历逻辑完全一致：gEvts → offsets → origKey+charIndex 拼接 key → 从 evMap 取单元格
+      gEvts.forEach(def => {
+        def.offsets.forEach((_, idx) => {
+          const origKey = def._origKey || def.key;
+          const hk = origKey + '_' + (def.charIndex != null ? def.charIndex : idx);
+          const ev = evMap[hk];
+          if (!ev) return; // 该事件在此版本不存在或被隐藏
+          html += listEvCellHTML(game, v, ev, editMode);
+        });
       });
       return html;
     };
