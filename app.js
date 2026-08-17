@@ -1321,15 +1321,15 @@ function renderList() {
     let headRow1 = '<th rowspan="2">版本</th><th rowspan="2">更新</th>';
     groups.forEach(g => {
       const hid = g.cols.every(c => isDefHidden(c.def));
-      const gDrag = editMode ? ` draggable="true" data-group-id="${escapeAttr(g.id)}" class="le-group-drag"` : '';
+      const gDrag = editMode ? ` draggable="true" data-group-id="${escapeAttr(g.id)}"` : '';
       const grab = editMode ? '<span class="set-ev-grab" style="font-size:9px;margin-right:2px;opacity:.5">⠿</span>' : '';
       if (g.singleton) {
         const c = g.cols[0];
         const origKey = c.def._origKey || c.def.key;
-        headRow1 += `<th rowspan="2" style="${hid ? 'opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${eventColor(origKey, c.idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(c.def.name + (c.def.sub ? c.def.sub[c.idx] : ''))}</th>`;
+        headRow1 += `<th class="le-group-drag" rowspan="2" style="${hid ? 'opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${eventColor(origKey, c.idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(c.def.name + (c.def.sub ? c.def.sub[c.idx] : ''))}</th>`;
       } else {
         const colSpan = g.cols.length;
-        headRow1 += `<th colspan="${colSpan}" class="char-group-head" style="background:${g.color}22;color:${g.color};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${g.color}44${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${g.color};width:6px;height:6px"></span> ${escapeHtml(g.label)}</th>`;
+        headRow1 += `<th colspan="${colSpan}" class="char-group-head le-group-drag" style="background:${g.color}22;color:${g.color};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${g.color}44${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${g.color};width:6px;height:6px"></span> ${escapeHtml(g.label)}</th>`;
       }
     });
     // 第二行：子列名（仅非单列的组才占第二行；编辑模式可拖拽，但只能在所属组内移动）
