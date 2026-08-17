@@ -2,7 +2,7 @@
  * 游戏版本周期日程表  —  Game Version Schedule
  * 纯前端单页应用。数据存 localStorage，预留云端同步接口。
  * ========================================================================= */
-console.log('[GVS] 加载 app.v20260817b.js — 列表列诊断版（打印实际渲染的事件定义）');
+console.log('[GVS] 加载 app.v20260817b.js — 表头文字诊断版（打印每列最终标题）');
 'use strict';
 
 /* ----------------------------- 事件类型定义 ----------------------------- */
@@ -1090,8 +1090,12 @@ function renderList() {
 
     // 该游戏可见的事件列（全局 + 按游戏隐藏过滤后）
     const gEvts = gameActiveEvents(game);
-    // 🔍 诊断：打印列表视图实际渲染的事件列（定位"卡池更新上半"来源）
-    console.log('[GVS] 🔍 列表视图事件列 (game=' + (game&&game.id) + '):', gEvts.map(e => ({key:e.key, name:e.name, sub:e.sub, _isChar:e._isChar, charIndex:e.charIndex, _hidden:e._hidden})));
+    // 🔍 诊断：打印列表视图实际渲染的表头文字（定位"卡池更新上半"来源）
+    const headTexts = [];
+    gEvts.forEach(def => def.offsets.forEach((o, idx) => {
+      headTexts.push(def.name + (def.sub ? def.sub[idx] : '') + ' [key=' + def.key + (def.charIndex!=null?('_'+def.charIndex):'') + ']');
+    }));
+    console.log('[GVS] 🔍 列表视图实际表头文字 (game=' + (game&&game.id) + '): ' + headTexts.join(' | '));
     // 构建可见事件 key 集合，用于过滤每行的事件单元格
     const visibleEvKeys = new Set();
     gEvts.forEach(def => {
