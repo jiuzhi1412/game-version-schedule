@@ -2712,6 +2712,72 @@ function showModal() {
 }
 function hideModal() { document.getElementById('modal-mask').classList.remove('show'); }
 
+/* ----------------------------- 列表格子变化检测 ----------------------------- */
+
+/** 快照列表视图中每个数据格子的内容（用于渲染前后对比） */
+function snapshotListCells() {
+  const host = document.getElementById('view-list');
+  if (!host) return {};
+  const snap = {};
+  // 每行 <tr> 的 data 属性标识游戏+版本
+  host.querySelectorAll('.ver-table tbody tr').forEach(tr => {
+    const gameTd = tr.querySelector('.vt-ver');
+    if (!gameTd) return;
+    // 从版本列的 editable span 获取 game id
+    const editSpan = gameTd.querySelector('[data-game]');
+    const gameId = editSpan ? editSpan.dataset.game : '';
+    const tenths = editSpan ? editSpan.dataset.tenths : '';
+    // 遍历该行的所有数据 td（跳过第一列版本列）
+    tr.querySelectorAll('td').forEach((td, ci) => {
+      if (ci === 0) return; // 跳过版本列
+      const dateEl = td.querySelector('.le-cell-date');
+      const dotEl = td.querySelector('.off-dot');
+      if (dateEl) {
+        const key = `${gameId}|${tenths}|${ci}`;
+        snap[key] = {
+          text: dateEl.textContent.trim(),
+          dotCls: dotEl ? Array.from(dotEl.classList).filter(c => c.startsWith('off-dot-')).join(' ') : ''
+        };
+      }
+    });
+  });
+  return snap;
+}
+
+/** 对比快照与当前 DOM，高亮变化的格子，返回变化数量 */
+function highlightChangedCells(oldSnap) {
+  const host = document.getElementById('view-list');
+  if (!host || !oldSnap) return 0;
+  let changed = 0;
+  host.querySelectorAll('.ver-table tbody tr').forEach(tr => {
+    const gameTd = tr.querySelector('.vt-ver');
+    if (!gameTd) return;
+    const editSpan = gameTd.querySelector('[data-game]');
+    const gameId = editSpan ? editSpan.dataset.game : '';
+    const tenths = editSpan ? editSpan.dataset.tenths : '';
+    tr.querySelectorAll('td').forEach((td, ci) => {
+      if (ci === 0) return;
+      const dateEl = td.querySelector('.le-cell-date');
+      const dotEl = td.querySelector('.off-dot');
+      if (!dateEl) return;
+      const key = `${gameId}|${tenths}|${ci}`;
+      const old = oldSnap[key];
+      if (!old) { changed++; td.classList.add('le-cell-new'); return; }
+      const newText = dateEl.textContent.trim();
+      const newDotCls = dotEl ? Array.from(dotEl.classList).filter(c => c.startsWith('off-dot-')).join(' ') : '';
+      if (old.text !== newText || old.dotCls !== newDotCls) {
+        changed++;
+        td.classList.add('le-cell-changed');
+      }
+    });
+  });
+  // 1.5秒后移除高亮类
+  if (changed > 0) setTimeout(() => {
+    document.querySelectorAll('.le-cell-changed, .le-cell-new').forEach(el => el.classList.remove('le-cell-changed', 'le-cell-new'));
+  }, 1500);
+  return changed;
+}
+
 /**
  * 偏移计算汇总
  * @param {string} [optGameId] - 传入游戏 ID 时只显示该游戏的独立计算卡片；不传则显示全部游戏汇总
@@ -2793,7 +2859,14 @@ function showOffsetSummary(optGameId) {
     document.getElementById('modal-title').textContent = '🧮 偏移计算汇总（全部游戏）';
   }
   document.getElementById('modal-body').innerHTML = body;
-  document.getElementById('modal-save').onclick = () => { hideModal(); render(); toast('已重新计算'); };
+  document.getElementById('modal-save').onclick = () => {
+    hideModal();
+    // 快照当前所有数据格子的内容，用于渲染后对比变化
+    const snap = snapshotListCells();
+    render();
+    const changed = highlightChangedCells(snap);
+    toast(changed > 0 ? `已重新计算，${changed} 个格子有变化（已高亮）` : '已重新计算，无变化');
+  };
   showModal();
 }
 
