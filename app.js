@@ -1266,10 +1266,10 @@ function renderList() {
     const sorted = [...all].sort((a, b) => a.updateDate.getTime() - b.updateDate.getTime());
     const past = sorted.filter(v => v.updateDate.getTime() < tMs);
     const future = sorted.filter(v => v.updateDate.getTime() >= tMs);
-    // 取过去版本：最新的 N 个（末尾），其中最后一个就是「当前版本」
-    const pastN = past.slice(-(state.listPast || 2));   // 已按日期正序：如 [6.6, 6.8] 或 [6.8] 或 [6.8, 7.0]
-    const currentVer = pastN.length > 0 ? pastN[pastN.length - 1] : null;  // 最近的一个 = 当前运行中版本
-    const olderVersions = pastN.slice(0, -1);  // 排除当前版本的更早历史
+    // 当前版本 = 过去版本中最新更新的一个（始终单独显示，不计入"过去 N"）
+    const currentVer = past.length > 0 ? past[past.length - 1] : null;
+    // 过去版本 = 排除当前版本后，取更早的 N 个
+    const olderVersions = currentVer ? past.slice(0, -1).slice(-(state.listPast || 2)) : past.slice(-(state.listPast || 2));
     const futureN = future.slice(0, state.listCount || 8);
     // 爆料偏移量（用于每行独立计算目标版本）
     const teaseOff = state.teaseVersionOffset || 0;
