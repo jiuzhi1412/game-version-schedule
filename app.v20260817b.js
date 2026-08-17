@@ -3,7 +3,7 @@
  * 纯前端单页应用。数据存 localStorage，预留云端同步接口。
  * ========================================================================= */
 
-console.log('[GVS] 加载 app.v20260817b.js — banner 已从模板删除，无卡池更新上半列');
+console.log('[GVS] 加载 app.v20260817b.js — 含诊断日志，请查看 Console 输出');
 
 'use strict';
 
@@ -62,11 +62,17 @@ function generateCharEvents(charCount) {
 /** 获取当前生效的事件定义列表（过滤掉 hidden 的，含动态生成的角色事件） */
 function activeEvents() {
   // 渲染源头过滤已废弃的旧 key：char_pv/char_preview（已被角色分组替代）、banner（已被角色一卡池替代）
-  const base = (state.customEvents || EVENT_DEFS_TEMPLATE).filter(e =>
-    e.hidden !== true &&
-    e.key !== 'char_pv' && e.key !== 'char_preview' &&
-    e.key !== 'banner'
-  );
+  const raw = state.customEvents || EVENT_DEFS_TEMPLATE;
+  // 诊断：检测是否有 banner 漏网
+  if (Array.isArray(raw) && raw.some(e => e.key === 'banner' || (e.key||'').toString().trim() === 'banner')) {
+    console.warn('[GVS] ⚠️ activeEvents 检测到 banner 未被过滤！customEvents keys:', raw.map(e=>e.key));
+  }
+  const base = raw.filter(e => {
+    const k = (e.key || '').toString().trim();
+    return e.hidden !== true &&
+      k !== 'char_pv' && k !== 'char_preview' &&
+      k !== 'banner';
+  });
   // 追加动态角色事件（从第一个游戏取 charCount，或默认2）
   const charCount = (state.games && state.games[0] && state.games[0].charCount) || 2;
   return base.concat(generateCharEvents(charCount));
@@ -299,12 +305,17 @@ function supabaseAdapter() {
 function applyRemoteState(remote) {
   if (!remote || !Array.isArray(remote.games)) return;
   state = remote;
+  console.log('[GVS] 🔍 云端数据 customEvents 原始 keys:', Array.isArray(state.customEvents) ? state.customEvents.map(e=>e.key) : '非数组:' + typeof state.customEvents);
   if (!state.customEvents || !Array.isArray(state.customEvents)) state.customEvents = JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE));
   // 云端旧数据可能含已废弃的 banner/char_pv/char_preview，加载后先清理（与 init 迁移一致）
+  const beforeLen = state.customEvents.length;
   if (Array.isArray(state.customEvents)) {
-    state.customEvents = state.customEvents.filter(e =>
-      e.key !== 'banner' && e.key !== 'char_pv' && e.key !== 'char_preview');
+    state.customEvents = state.customEvents.filter(e => {
+      const k = (e.key || '').toString().trim();
+      return k !== 'banner' && k !== 'char_pv' && k !== 'char_preview';
+    });
   }
+  console.log('[GVS] 🔍 清理后 customEvents keys:', state.customEvents.map(e=>e.key), '（删除了', beforeLen - state.customEvents.length, '条）');
   if (!state.charSubOrder || !state.charSubOrder.length) state.charSubOrder = ['char_banner', 'char_preview', 'char_pv'];
   if (!state.charGroupOrder || !state.charGroupOrder.length) state.charGroupOrder = [0, 1, 2, 3, 4, 5];
   if (typeof state.dayW !== 'number') state.dayW = 4;
