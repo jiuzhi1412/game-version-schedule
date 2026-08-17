@@ -356,6 +356,8 @@ function applyRemoteState(remote) {
   if (typeof state.listPast !== 'number') state.listPast = 2;
   if (typeof state.showLabels !== 'boolean') state.showLabels = true;
   if (typeof state.listEditMode !== 'boolean') state.listEditMode = false;
+  // listColumnOrder: 自定义列顺序（空数组=使用默认顺序；非空时按此数组排列列）
+  if (!Array.isArray(state.listColumnOrder)) state.listColumnOrder = [];
   state.games.forEach(g => {
     migrateGame(g);
     // 清理 hiddenEventKeys 中已失效的 banner/banner_0/char_pv/char_preview 脏 key
@@ -495,6 +497,7 @@ async function restoreFromFile() {
   if (typeof state.listPast !== 'number') state.listPast = 2;
     if (typeof state.showLabels !== 'boolean') state.showLabels = true;
     if (typeof state.listEditMode !== 'boolean') state.listEditMode = false;
+    if (!Array.isArray(state.listColumnOrder)) state.listColumnOrder = [];
     state.games.forEach(migrateGame);
     visibleGames = state.visibleGames || {};
     Storage.save(state); render(); updateBackupStatus();
@@ -1164,10 +1167,9 @@ function renderList() {
 
     const cols = 2 + gEvts.reduce((a, d) => a + d.offsets.length, 0);
 
-    // 构建分组表头数据：角色事件用两行表头（分组行 + 子列名行）
-    // ⚠️ 必须在 renderEvCells 和 rows 渲染之前构建，因为两者都依赖这些数组
+    // 构建分组表头数据（用于 headRow1 的分组行，含 colspan）
     const charGroupDefs = []; // { ci, label, cols: [{def, idx}] }
-    const teaseGroup = { ci: -1, label: '新角色爆料', cols: [] }; // 独立分组块（不混入角色分组）
+    const teaseGroup = { ci: -1, label: '新角色爆料', cols: [] };
     const normalCols = [];
     gEvts.forEach((def) => {
       def.offsets.forEach((o, idx) => {
@@ -1189,16 +1191,42 @@ function renderList() {
     });
     const teaseGroupDefs = teaseGroup.cols.length ? [teaseGroup] : [];
 
+    // 构建扁平有序列列表（用于 headRow2 子列名 + 数据单元格渲染 + 拖拽排序）
+    // 每项: { colId, type:'normal'|'tease'|'char', def, idx, groupCi? }
+    let flatCols = [];
+    normalCols.forEach(c => { flatCols.push({ ...c, colId: c.def.key, type: 'normal' }); });
+    teaseGroupDefs.forEach(g => {
+      g.cols.forEach(c => {
+        const ci = c.def.charIndex != null ? c.def.charIndex : c.idx;
+        flatCols.push({ ...c, colId: 'tease_' + ci, type: 'tease', groupCi: ci });
+      });
+    });
+    charGroupDefs.forEach(g => {
+      g.cols.forEach(c => {
+        flatCols.push({ ...c, colId: (c.def._origKey || c.def.key) + '_' + (c.def.charIndex ?? c.idx), type: 'char', groupCi: g.ci });
+      });
+    });
+
+    // 如果有自定义列顺序（listColumnOrder），按其重排（只保留仍存在的列ID，多余的忽略）
+    if (state.listColumnOrder && state.listColumnOrder.length > 0) {
+      const orderMap = {};
+      state.listColumnOrder.forEach((id, i) => { if (!orderMap[id]) orderMap[id] = i; });
+      const maxOrder = state.listColumnOrder.length;
+      flatCols.sort((a, b) => {
+        const oa = (orderMap[a.colId] != null) ? orderMap[a.colId] : maxOrder;
+        const ob = (orderMap[b.colId] != null) ? orderMap[b.colId] : maxOrder;
+        return oa - ob;
+      });
+    }
+
     let rows = '';
 
-    // 辅助函数：按与表头完全一致的顺序（normalCols → teaseGroupDefs → charGroupDefs）渲染可见事件单元格
+    // 辅助函数：按 flatCols 顺序渲染可见事件单元格（与表头严格一一对应）
     const renderEvCells = (v, editMode) => {
       let html = '';
-      // 预建 historyKey → 事件 映射，供按列顺序查找
+      // 预建 historyKey → 事件 映射
       const evMap = {};
       v.events.forEach(ev => { evMap[ev.historyKey] = ev; });
-      // ⚠️ 必须与表头遍历顺序完全一致：先 normalCols，再 teaseGroupDefs，再 charGroupDefs
-      //    否则第 N 列的表头和第 N 个数据单元格对应不上
       // historyKey 拼接规则同 genGameVersions 第685行
       const lookupEv = (def, idx) => {
         const origKey = def._origKey || def.key;
@@ -1206,31 +1234,21 @@ function renderList() {
         const hk = origKey + (needsSuffix ? '_' + (def.charIndex != null ? def.charIndex : idx) : '');
         return evMap[hk];
       };
-      // 1. 普通事件列（version_preview / version_update 等）
-      normalCols.forEach(({ def, idx }) => {
-        const ev = lookupEv(def, idx);
-        if (ev) html += listEvCellHTML(game, v, ev, editMode);
-      });
-      // 2. 新角色爆料列：每行独立计算目标版本（该行版本 + 偏移），显示对应角色备注名
-      teaseGroupDefs.forEach(group => {
-        group.cols.forEach(({ def, idx }) => {
-          const ci = def.charIndex != null ? def.charIndex : idx;
-          // 每行独立计算：从 allSorted 找到当前行 v 的索引，往后偏移 teaseOff 个版本
+      // 按 flatCols 统一遍历（与 headRow2 完全一致）
+      flatCols.forEach(col => {
+        if (col.type === 'tease') {
+          const ci = col.def.charIndex != null ? col.def.charIndex : col.idx;
           const vIdx = allSorted.findIndex(sv => sv.tenths === v.tenths);
           const rowTarget = (vIdx >= 0 && teaseOff > 0 && allSorted[vIdx + teaseOff])
             ? allSorted[vIdx + teaseOff]
-            : (teaseOff <= 0 ? v : null); // 偏移=0或负数用自身，超出范围则 null
+            : (teaseOff <= 0 ? v : null);
           const remark = (rowTarget && game.charNames)
             ? (game.charNames[String(rowTarget.tenths) + '|' + ci] || '') : '';
-          html += teaseCellHTML(def, remark, editMode, game, v, rowTarget);
-        });
-      });
-      // 3. 角色分组列（每个角色的卡池/预告/PV 按组内顺序）
-      charGroupDefs.forEach(group => {
-        group.cols.forEach(({ def, idx }) => {
-          const ev = lookupEv(def, idx);
+          html += teaseCellHTML(col.def, remark, editMode, game, v, rowTarget);
+        } else {
+          const ev = lookupEv(col.def, col.idx);
           if (ev) html += listEvCellHTML(game, v, ev, editMode);
-        });
+        }
       });
       return html;
     };
@@ -1304,27 +1322,17 @@ function renderList() {
         <span class="chip-dot" style="background:${groupColor};width:6px;height:6px"></span> ${escapeHtml(group.label)}
       </th>`;
     });
-    // 第二行：角色子列名
+    // 第二行：子列名（按 flatCols 顺序，编辑模式可拖拽排序）
     let headRow2 = '';
-    teaseGroupDefs.forEach(group => {
-      group.cols.forEach(({ def, idx }) => {
-        const color = eventColor('char_tease', def.charIndex ?? 0);
-        const hid = isDefHidden(def);
-        // 爆料子列名：直接用 def.name（如"新角色爆料·角色一"），固定不绑定 charNames
-        const cellText = def.name;
-        headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08${hid ? ';opacity:.35;text-decoration:line-through' : ''}">${escapeHtml(cellText)}</th>`;
-      });
-    });
-    charGroupDefs.forEach(group => {
-      group.cols.forEach(({ def, idx }) => {
-        const origKey = def._origKey || def.key;
-        const color = eventColor(origKey, group.ci ?? idx);
-        const hid = isDefHidden(def);
-        // 表头文字：有 sub 用 sub（如"卡池"/"预告"/"PV"），否则用 def.name（如"新角色爆料·角色一"）
-        // 注意：爆料列保持固定名称，不绑定 charNames（备注名只显示在单元格内）
-        const cellText = def.sub ? def.sub[idx] : def.name;
-        headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08${hid ? ';opacity:.35;text-decoration:line-through' : ''}">${escapeHtml(cellText)}</th>`;
-      });
+    flatCols.forEach(col => {
+      const origKey = col.def._origKey || col.def.key;
+      const color = eventColor(origKey, col.groupCi ?? col.idx);
+      const hid = isDefHidden(col.def);
+      const cellText = col.def.sub ? col.def.sub[col.idx] : col.def.name;
+      const dragAttrs = editMode
+        ? ` draggable="true" data-col-id="${escapeAttr(col.colId)}" class="le-col-drag"`
+        : '';
+      headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${dragAttrs}>${editMode ? '<span class="set-ev-grab" style="font-size:9px;margin-right:2px;opacity:.5">⠿</span>' : ''}${escapeHtml(cellText)}</th>`;
     });
     const head = `<tr>${headRow1}</tr>${headRow2 ? '<tr>' + headRow2 + '</tr>' : ''}`;
     // 编辑模式切换 + 列设置按钮（仅编辑模式显示）
@@ -1345,7 +1353,7 @@ function renderList() {
   });
   host.innerHTML = html;
   // 编辑模式下绑定单元格点击事件
-  if (editMode) bindListEditCells();
+  if (editMode) { bindListEditCells(); bindColumnDrag(); }
 }
 
 /** 切换列表编辑模式 */
@@ -1364,6 +1372,58 @@ function bindListEditCells() {
       const cellType = td.dataset.cellType || 'ev';
       const hk = td.dataset.hk || '';
       openListCellEditor(gameId, tenths, cellType, hk, td);
+    });
+  });
+}
+
+/** 为编辑模式的列表表头绑定列拖拽排序事件 */
+function bindColumnDrag() {
+  const headers = document.querySelectorAll('#view-list .le-col-drag');
+  if (!headers.length) return;
+  let dragSrcId = null;
+  headers.forEach(th => {
+    th.addEventListener('dragstart', (e) => {
+      dragSrcId = th.dataset.colId;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', dragSrcId);
+      th.style.opacity = '0.4';
+    });
+    th.addEventListener('dragend', () => {
+      th.style.opacity = '';
+      headers.forEach(h => h.classList.remove('drag-over'));
+      dragSrcId = null;
+    });
+    th.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (th.dataset.colId !== dragSrcId) th.classList.add('drag-over');
+    });
+    th.addEventListener('dragleave', () => th.classList.remove('drag-over'));
+    th.addEventListener('drop', (e) => {
+      e.preventDefault();
+      th.classList.remove('drag-over');
+      const targetId = th.dataset.colId;
+      if (!dragSrcId || targetId === dragSrcId || !targetId) return;
+      // 更新 listColumnOrder：从 flatCols 当前顺序中找到 src 和 target 的位置并交换
+      // 先确保 listColumnOrder 与当前显示一致
+      const currentOrder = (state.listColumnOrder && state.listColumnOrder.length > 0)
+        ? [...state.listColumnOrder] : [];
+      // 如果当前 order 为空或与实际列不匹配，先从 DOM 收集实际顺序
+      const domOrder = Array.from(headers).map(h => h.dataset.colId);
+      if (currentOrder.length === 0 || !domOrder.every(id => currentOrder.includes(id))) {
+        state.listColumnOrder = [...domOrder];
+      }
+      // 在 order 中交换 src 和 target
+      const arr = state.listColumnOrder;
+      const si = arr.indexOf(dragSrcId);
+      const ti = arr.indexOf(targetId);
+      if (si >= 0 && ti >= 0) {
+        arr.splice(si, 1);
+        arr.splice(ti, 0, dragSrcId);
+        saveLocalOnly();
+        render(); // 重渲染以应用新顺序
+        toast('列顺序已调整');
+      }
     });
   });
 }

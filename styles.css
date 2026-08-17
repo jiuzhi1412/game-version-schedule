@@ -278,6 +278,11 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 .set-ev-sub-name { font-size: 13px; font-weight: 600; }
 .set-ev-sub-off { font-size: 12px; }
 
+/* 列表视图表头列拖拽排序 */
+.le-col-drag { cursor: grab; user-select: none; transition: background 0.15s; }
+.le-col-drag:active { cursor: grabbing; }
+.le-col-drag.drag-over { background: var(--primary-soft) !important; box-shadow: inset 0 -2px 0 var(--primary); }
+
 
 /* 筛选栏上的编辑入口 */
 .chip-edit { border: none; background: transparent; color: var(--text-soft); cursor: pointer; font-size: 13px; padding: 0 2px 0 6px; line-height: 1; }
