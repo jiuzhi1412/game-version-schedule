@@ -1132,23 +1132,31 @@ function renderList() {
     const cols = 2 + gEvts.reduce((a, d) => a + d.offsets.length, 0);
     let rows = '';
 
-    // 辅助函数：按 gEvts（与表头完全一致的顺序）渲染可见事件单元格，避免 v.events 遍历顺序差异导致列错位
+    // 辅助函数：按与表头完全一致的顺序（normalCols → charGroupDefs 分组）渲染可见事件单元格
     const renderEvCells = (v, editMode) => {
       let html = '';
       // 预建 historyKey → 事件 映射，供按列顺序查找
       const evMap = {};
       v.events.forEach(ev => { evMap[ev.historyKey] = ev; });
-      // 与表头遍历逻辑完全一致：gEvts → offsets → origKey+charIndex 拼接 key → 从 evMap 取单元格
-      // ⚠️ historyKey 拼接规则必须与 genGameVersions 第685行完全一致：
-      //    仅当 offsets.length>1 或 charIndex!=null 时才加 _{suffix} 后缀
-      gEvts.forEach(def => {
-        def.offsets.forEach((_, idx) => {
-          const origKey = def._origKey || def.key;
-          const needsSuffix = def.offsets.length > 1 || def.charIndex != null;
-          const hk = origKey + (needsSuffix ? '_' + (def.charIndex != null ? def.charIndex : idx) : '');
-          const ev = evMap[hk];
-          if (!ev) return; // 该事件在此版本不存在或被隐藏
-          html += listEvCellHTML(game, v, ev, editMode);
+      // ⚠️ 必须与表头遍历顺序完全一致：先 normalCols，再按 charGroupDefs 分组迭代
+      //    否则第 N 列的表头和第 N 个数据单元格对应不上
+      // historyKey 拼接规则同 genGameVersions 第685行
+      const lookupEv = (def, idx) => {
+        const origKey = def._origKey || def.key;
+        const needsSuffix = def.offsets.length > 1 || def.charIndex != null;
+        const hk = origKey + (needsSuffix ? '_' + (def.charIndex != null ? def.charIndex : idx) : '');
+        return evMap[hk];
+      };
+      // 1. 普通事件列（version_preview / version_update 等）
+      normalCols.forEach(({ def, idx }) => {
+        const ev = lookupEv(def, idx);
+        if (ev) html += listEvCellHTML(game, v, ev, editMode);
+      });
+      // 2. 角色分组列（每个角色的爆料/卡池/预告/PV 按组内顺序）
+      charGroupDefs.forEach(group => {
+        group.cols.forEach(({ def, idx }) => {
+          const ev = lookupEv(def, idx);
+          if (ev) html += listEvCellHTML(game, v, ev, editMode);
         });
       });
       return html;
