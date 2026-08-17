@@ -1257,6 +1257,7 @@ function renderList() {
       };
       // 按 flatCols 统一遍历（与 headRow2 完全一致）
       flatCols.forEach(col => {
+        let cell;
         if (col.type === 'tease') {
           const ci = col.def.charIndex != null ? col.def.charIndex : col.idx;
           const vIdx = allSorted.findIndex(sv => sv.tenths === v.tenths);
@@ -1265,11 +1266,13 @@ function renderList() {
             : (teaseOff <= 0 ? v : null);
           const remark = (rowTarget && game.charNames)
             ? (game.charNames[String(rowTarget.tenths) + '|' + ci] || '') : '';
-          html += teaseCellHTML(col.def, remark, editMode, game, v, rowTarget);
+          cell = teaseCellHTML(col.def, remark, editMode, game, v, rowTarget);
         } else {
           const ev = lookupEv(col.def, col.idx);
-          if (ev) html += listEvCellHTML(game, v, ev, editMode);
+          cell = ev ? listEvCellHTML(game, v, ev, editMode) : '<td></td>';
         }
+        // 整列 FLIP：给该列每个单元格打同列 key（分组共享 → 整块同移动）
+        html += cell.replace(/^<td/, `<td data-col-key="${escapeAttr(col.colId)}"`);
       });
       return html;
     };
@@ -1326,10 +1329,10 @@ function renderList() {
       if (g.singleton) {
         const c = g.cols[0];
         const origKey = c.def._origKey || c.def.key;
-        headRow1 += `<th class="le-group-drag" rowspan="2" style="${hid ? 'opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${eventColor(origKey, c.idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(c.def.name + (c.def.sub ? c.def.sub[c.idx] : ''))}</th>`;
+        headRow1 += `<th class="le-group-drag" data-col-key="${escapeAttr(g.id)}" rowspan="2" style="${hid ? 'opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${eventColor(origKey, c.idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(c.def.name + (c.def.sub ? c.def.sub[c.idx] : ''))}</th>`;
       } else {
         const colSpan = g.cols.length;
-        headRow1 += `<th colspan="${colSpan}" class="char-group-head le-group-drag" style="background:${g.color}22;color:${g.color};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${g.color}44${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${g.color};width:6px;height:6px"></span> ${escapeHtml(g.label)}</th>`;
+        headRow1 += `<th colspan="${colSpan}" class="char-group-head le-group-drag" data-col-key="${escapeAttr(g.id)}" style="background:${g.color}22;color:${g.color};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${g.color}44${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${g.color};width:6px;height:6px"></span> ${escapeHtml(g.label)}</th>`;
       }
     });
     // 第二行：子列名（仅非单列的组才占第二行；编辑模式可拖拽，但只能在所属组内移动）
@@ -1342,7 +1345,7 @@ function renderList() {
         const hid = isDefHidden(col.def);
         const cellText = col.def.sub ? col.def.sub[col.idx] : col.def.name;
         const dragAttrs = editMode
-          ? ` draggable="true" data-col-id="${escapeAttr(col.colId)}" data-group-id="${escapeAttr(g.id)}" class="le-col-drag"`
+          ? ` draggable="true" data-col-id="${escapeAttr(col.colId)}" data-group-id="${escapeAttr(g.id)}" data-col-key="${escapeAttr(col.colId)}" class="le-col-drag"`
           : '';
         headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${dragAttrs}>${editMode ? '<span class="set-ev-grab" style="font-size:9px;margin-right:2px;opacity:.5">⠿</span>' : ''}${escapeHtml(cellText)}</th>`;
       });
@@ -1389,6 +1392,47 @@ function bindListEditCells() {
   });
 }
 
+/** FLIP 落位过渡：拖拽完成后整列滑入新位置。
+ *  重排前调用 captureColumnRects() 记录各列左边界；render() 后调用 playColumnFlip() 播放。
+ *  列内所有 [data-col-key] 元素（表头 th + 该列全部数据 td）共享同一 key，故整列同步平移。 */
+function captureColumnRects() {
+  // 先中和拖起浮起的 transform，否则被缩放的源单元格量到的左边界会偏移
+  document.querySelectorAll('#view-list .le-dragging').forEach(el => { el.style.transition = 'none'; el.style.transform = 'none'; });
+  const map = {};
+  document.querySelectorAll('#view-list [data-col-key]').forEach(el => {
+    const k = el.getAttribute('data-col-key');
+    if (!(k in map)) map[k] = el.getBoundingClientRect().left;
+  });
+  return map;
+}
+function playColumnFlip(oldMap) {
+  const moved = [];
+  document.querySelectorAll('#view-list [data-col-key]').forEach(el => {
+    const k = el.getAttribute('data-col-key');
+    if (!(k in oldMap)) return;
+    const dx = oldMap[k] - el.getBoundingClientRect().left;
+    if (Math.abs(dx) < 1) return;
+    el.classList.add('le-flip-move');
+    el.style.transition = 'none';
+    el.style.transform = `translateX(${dx}px)`;
+    moved.push(el);
+  });
+  if (!moved.length) return;
+  // 强制回流，确保初始位移生效后再过渡回 0
+  void document.body.offsetHeight;
+  requestAnimationFrame(() => {
+    moved.forEach(el => {
+      el.style.transition = 'transform 0.26s cubic-bezier(.2,.8,.2,1)';
+      el.style.transform = '';
+    });
+    setTimeout(() => moved.forEach(el => {
+      el.classList.remove('le-flip-move');
+      el.style.transition = '';
+      el.style.transform = '';
+    }), 320);
+  });
+}
+
 /** 为编辑模式的列表表头绑定拖拽排序：
  *   - 第一行(th.le-group-drag)：拖「整组」（含其下所有子列），组间自由重排
  *   - 第二行(th.le-col-drag)：拖「子列」，但只能在本组内移动，不能跨组
@@ -1406,18 +1450,18 @@ function bindColumnDrag() {
       _listDragSrc = { kind: 'group', groupId: th.dataset.groupId };
       e.dataTransfer.effectAllowed = 'move';
       try { e.dataTransfer.setData('text/plain', 'group:' + th.dataset.groupId); } catch(_) {}
-      th.style.opacity = '0.4';
+      th.classList.add('le-dragging');
     });
-    th.addEventListener('dragend', () => { th.style.opacity = ''; document.querySelectorAll('#view-list .drag-over').forEach(x => x.classList.remove('drag-over')); _listDragSrc = null; });
+    th.addEventListener('dragend', () => { th.classList.remove('le-dragging'); document.querySelectorAll('#view-list .drag-over').forEach(x => x.classList.remove('drag-over')); _listDragSrc = null; });
   });
   colEls.forEach(th => {
     th.addEventListener('dragstart', e => {
       _listDragSrc = { kind: 'col', groupId: th.dataset.groupId, colId: th.dataset.colId };
       e.dataTransfer.effectAllowed = 'move';
       try { e.dataTransfer.setData('text/plain', 'col:' + th.dataset.groupId + ':' + th.dataset.colId); } catch(_) {}
-      th.style.opacity = '0.4';
+      th.classList.add('le-dragging');
     });
-    th.addEventListener('dragend', () => { th.style.opacity = ''; document.querySelectorAll('#view-list .drag-over').forEach(x => x.classList.remove('drag-over')); _listDragSrc = null; });
+    th.addEventListener('dragend', () => { th.classList.remove('le-dragging'); document.querySelectorAll('#view-list .drag-over').forEach(x => x.classList.remove('drag-over')); _listDragSrc = null; });
   });
 
   const clearOver = () => document.querySelectorAll('#view-list .le-group-drag.drag-over, #view-list .le-col-drag.drag-over').forEach(x => x.classList.remove('drag-over'));
@@ -1455,7 +1499,8 @@ function bindColumnDrag() {
       if (si < 0 || ti < 0) return;
       order.splice(si, 1); order.splice(ti, 0, srcId);
       state.listGroupOrder = order;
-      saveLocalOnly(); render(); toast('分组顺序已调整');
+      const snap = captureColumnRects();
+      saveLocalOnly(); render(); playColumnFlip(snap); toast('分组顺序已调整');
     } else if (_listDragSrc && _listDragSrc.kind === 'col') {
       const srcGrp = _listDragSrc.groupId, srcCol = _listDragSrc.colId;
       const tGrp = cT && cT.dataset.groupId, tCol = cT && cT.dataset.colId;
@@ -1467,7 +1512,8 @@ function bindColumnDrag() {
       sub.splice(si, 1); sub.splice(ti, 0, srcCol);
       state.listSubOrder = state.listSubOrder || {};
       state.listSubOrder[srcGrp] = sub;
-      saveLocalOnly(); render(); toast('组内列顺序已调整');
+      const snap = captureColumnRects();
+      saveLocalOnly(); render(); playColumnFlip(snap); toast('组内列顺序已调整');
     }
   });
   });
