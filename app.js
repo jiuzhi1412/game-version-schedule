@@ -1358,8 +1358,9 @@ function renderList() {
             ? (game.charNames[String(rowTarget.tenths) + '|' + ci] || '') : '';
           // 爆料事件自身日期 = 绑定未来版本的 char_tease 事件日期（= 该版本更新日 + 偏移），与其他事件列算法一致
           let teaseDate = null;
+          let teaseEv = null;
           if (rowTarget) {
-            const teaseEv = rowTarget.events.find(e => e.historyKey === ('char_tease_' + ci));
+            teaseEv = rowTarget.events.find(e => e.historyKey === ('char_tease_' + ci));
             teaseDate = teaseEv ? teaseEv.date : addDays(rowTarget.updateDate, TEASE_OFF);
           }
           // 检查该版本是否隐藏了此爆料事件（per-version 隐藏 或 列级隐藏）
