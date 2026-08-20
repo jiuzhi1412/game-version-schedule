@@ -744,42 +744,194 @@ async function restoreFromFile() {
   } catch (e) { if (e && e.name !== 'AbortError') { console.warn(e); alert('恢复失败：' + e.message); } }
 }
 
+// 用户导出的默认数据：作为「无本地数据（新设备 / 清缓存 / 首次打开）」时的默认打开状态。
+// 由 设置→导出JSON 固化而来；如需重新生成默认状态，导出最新数据覆盖此处即可。
+const USER_DEFAULT_STATE = {
+  "dayW": 33,
+  "games": [
+    {
+      "id": "g_1jpttky",
+      "icon": { "type": "file", "color": "#22c55e", "value": "icons/yuanshen.png" },
+      "name": "原神",
+      "color": "#22c55e",
+      "fullName": "Genshin Impact",
+      "minorMax": 8,
+      "verNotes": {},
+      "charCount": 2,
+      "charNames": { "69|0": "桑多涅", "70|0": "奥黛塔", "71|0": "薇斯纳", "71|1": "沃雅妮莎" },
+      "anchorDate": "2026-08-12",
+      "baseOffsets": { "char_pv": -2, "char_tease": 33, "char_banner": 1, "char_preview": -1, "version_update": 0, "version_preview": 35 },
+      "eventTitles": {},
+      "anchorTenths": 70,
+      "baseCycleDays": 42,
+      "verUpdateDates": { "69": "2026-07-01", "70": "2026-08-12", "71": "2026-09-23" },
+      "_teaserMigrated": true,
+      "colDisplayNames": { "char_pv_0": "PV", "char_pv_1": "PV", "char_banner_0": "卡池", "char_banner_1": "卡池", "char_preview_0": "角色预告", "char_preview_1": "角色预告" },
+      "hiddenEventKeys": [],
+      "verEventOffsets": {
+        "69|char_pv_0": -6, "70|char_pv_0": -6, "69|char_tease_0": 2, "69|char_tease_1": 3, "70|char_tease_0": 5, "70|char_tease_1": 6,
+        "69|char_banner_0": 0, "69|char_banner_1": 20, "70|char_banner_0": 0, "70|char_banner_1": 20, "71|char_banner_1": 20,
+        "69|char_preview_0": -1, "70|char_preview_0": -1, "69|version_preview": -12, "70|version_preview": -12
+      },
+      "verHiddenEvents": { "69|char_pv_1": true, "70|char_pv_1": true, "69|char_tease_1": true, "69|char_preview_1": true, "70|char_preview_1": true },
+      "versionDurations": {},
+      "minorMaxBreakpoints": []
+    },
+    {
+      "id": "g_h479sqi",
+      "icon": { "type": "file", "color": "#6366f1", "value": "icons/starrail.png" },
+      "name": "崩坏：星穹铁道",
+      "color": "#6366f1",
+      "fullName": "Honkai: Star Rail",
+      "minorMax": 9,
+      "verNotes": {},
+      "charCount": 2,
+      "charNames": { "43|0": "千冶•刃", "44|0": "姬子•启行", "45|0": "知更鸟•晴歌", "45|1": "砂金•戏浪", "46|0": "真珠" },
+      "anchorDate": "2026-06-01",
+      "baseOffsets": {},
+      "eventTitles": {},
+      "anchorTenths": 43,
+      "baseCycleDays": 42,
+      "verUpdateDates": { "43": "2026-06-01", "44": "2026-07-15", "45": "2026-08-26", "46": "2026-09-28" },
+      "_teaserMigrated": true,
+      "colDisplayNames": { "char_pv_0": "PV", "char_pv_1": "PV", "char_banner_0": "卡池", "char_banner_1": "卡池", "char_preview_0": "走进星穹", "char_preview_1": "走进星穹" },
+      "hiddenEventKeys": [],
+      "verEventOffsets": {
+        "43|char_pv_0": -3, "44|char_pv_0": -1, "43|char_tease_0": -13, "44|char_tease_0": -15, "44|char_tease_1": -15, "45|char_tease_0": -15,
+        "43|char_banner_0": 0, "43|char_banner_1": 23, "44|char_banner_0": 0, "44|char_banner_1": 21, "45|char_banner_0": 0, "45|char_banner_1": 21,
+        "43|char_preview_0": -5, "44|char_preview_0": -6, "45|char_preview_0": -7,
+        "43|version_preview": -10, "44|version_preview": -10, "45|version_preview": -12, "46|version_preview": -10
+      },
+      "verHiddenEvents": { "43|char_pv_1": true, "44|char_pv_1": true, "43|char_tease_1": true, "45|char_tease_1": true, "43|char_preview_1": true, "44|char_preview_1": true },
+      "versionDurations": {},
+      "minorMaxBreakpoints": []
+    },
+    {
+      "id": "g_kqhysyi",
+      "icon": { "type": "file", "color": "#f97316", "value": "icons/zenless.png" },
+      "name": "绝区零",
+      "color": "#f97316",
+      "fullName": "Zenless Zone Zero",
+      "minorMax": 9,
+      "verNotes": {},
+      "charCount": 2,
+      "charNames": { "30|0": "维琳娜", "30|1": "诺姆", "31|0": "蕾米埃尔", "31|1": "希格莉德", "32|0": "克拉蕾", "32|1": "洛克茜" },
+      "anchorDate": "2026-06-17",
+      "baseOffsets": {},
+      "eventTitles": {},
+      "anchorTenths": 30,
+      "baseCycleDays": 42,
+      "verUpdateDates": { "30": "2026-06-17", "31": "2026-07-29", "32": "2026-09-09" },
+      "_teaserMigrated": true,
+      "colDisplayNames": { "char_pv_0": "PV / EP", "char_pv_1": "PV / EP", "char_banner_0": "卡池", "char_banner_1": "卡池", "char_preview_0": "角色展示" },
+      "hiddenEventKeys": [],
+      "verEventOffsets": {
+        "30|char_pv_0": -1, "30|char_pv_1": 19, "31|char_pv_0": -2, "31|char_pv_1": 19, "30|char_tease_0": 3, "30|char_tease_1": 3, "31|char_tease_0": 9, "31|char_tease_1": 9,
+        "30|char_banner_0": 0, "30|char_banner_1": 21, "31|char_banner_0": 0, "31|char_banner_1": 21,
+        "30|char_preview_0": -5, "30|char_preview_1": 16, "31|char_preview_0": -5, "31|char_preview_1": 16,
+        "30|version_preview": -11, "31|version_preview": -12, "32|version_preview": -12
+      },
+      "verHiddenEvents": {},
+      "versionDurations": {},
+      "minorMaxBreakpoints": []
+    },
+    {
+      "id": "g_sggjeow",
+      "icon": { "type": "file", "color": "#06b6d4", "value": "icons/wuthering.png" },
+      "name": "鸣潮",
+      "color": "#06b6d4",
+      "fullName": "Wuthering Waves",
+      "minorMax": 7,
+      "verNotes": {},
+      "charCount": 2,
+      "charNames": { "34|0": "露西", "34|1": "洛瑟菈", "35|0": "秧秧·玄翎", "35|1": "穗穗", "36|0": "清宵", "36|1": "景燃" },
+      "anchorDate": "2026-07-10",
+      "baseOffsets": { "char_pv_0": -3, "char_pv_1": 18, "char_tease_0": 33, "char_tease_1": 33, "char_banner_0": 0, "char_banner_1": 21, "char_preview_0": -2, "char_preview_1": 19, "version_update": 0, "version_preview": 35 },
+      "eventTitles": {},
+      "anchorTenths": 35,
+      "baseCycleDays": 42,
+      "verUpdateDates": { "34": "2026-06-08", "35": "2026-07-10", "36": "2026-08-20", "37": "2026-09-30" },
+      "_teaserMigrated": true,
+      "colDisplayNames": { "char_banner_0": "卡池", "char_banner_1": "卡池", "char_preview_0": "战斗演示", "char_preview_1": "战斗演示" },
+      "hiddenEventKeys": [],
+      "verEventOffsets": {
+        "34|char_pv_0": -1, "34|char_pv_1": 3, "35|char_pv_0": -2, "35|char_pv_1": 18, "36|char_pv_0": -2, "34|char_tease_0": 8, "34|char_tease_1": 9, "35|char_tease_0": 5, "35|char_tease_1": 6,
+        "34|char_banner_0": 0, "34|char_banner_1": 5, "35|char_banner_0": 0, "35|char_banner_1": 20, "36|char_banner_0": 0, "36|char_banner_1": 21,
+        "34|char_preview_0": -3, "34|char_preview_1": 2, "35|char_preview_0": -4, "35|char_preview_1": 16, "36|char_preview_0": -3,
+        "34|version_preview": -10, "35|version_preview": -14, "36|version_preview": -13, "37|version_preview": -12
+      },
+      "verHiddenEvents": {},
+      "versionDurations": {},
+      "minorMaxBreakpoints": []
+    },
+    {
+      "id": "g_1o9ivlq",
+      "icon": { "type": "file", "color": "#14b8a6", "value": "icons/endfield.png" },
+      "name": "终末地",
+      "color": "#14b8a6",
+      "fullName": "Arknights: Endfield",
+      "minorMax": 7,
+      "verNotes": {},
+      "charCount": 2,
+      "charNames": { "13|0": "弥弗", "13|1": "卡缪", "14|0": "诀", "14|1": "梨诺" },
+      "anchorDate": "2026-06-05",
+      "baseOffsets": { "char_pv_0": -3, "char_pv_1": 18, "char_tease_0": 33, "char_tease_1": 33, "char_banner_0": 0, "char_banner_1": 21, "char_preview_0": -2, "char_preview_1": 19, "version_update": 0, "version_preview": 35 },
+      "eventTitles": {},
+      "anchorTenths": 13,
+      "baseCycleDays": 42,
+      "verUpdateDates": { "13": "2026-06-05", "14": "2026-07-16", "15": "2026-08-27" },
+      "_teaserMigrated": true,
+      "colDisplayNames": { "char_pv_0": "EP", "char_pv_1": "EP", "char_banner_0": "卡池", "char_banner_1": "卡池", "char_preview_0": "干员叙事", "char_preview_1": "干员叙事" },
+      "hiddenEventKeys": [ "char_tease_0", "char_tease_1" ],
+      "verEventOffsets": {
+        "13|char_pv_0": 0, "13|char_pv_1": 21, "14|char_pv_0": 0, "14|char_pv_1": 24, "13|char_tease_0": 33, "13|char_banner_0": 0, "13|char_banner_1": 21,
+        "14|char_banner_0": 0, "14|char_banner_1": 24, "13|char_preview_0": -2, "13|char_preview_1": 20, "14|char_preview_0": -1, "14|char_preview_1": 23,
+        "13|version_preview": -14, "14|version_preview": -6, "15|version_preview": -6
+      },
+      "verHiddenEvents": {},
+      "versionDurations": {},
+      "minorMaxBreakpoints": []
+    }
+  ],
+  "version": 1,
+  "viewEnd": "2027-01-09",
+  "calFocus": "2026-7",
+  "cdColors": { "far": "#8B5CF6", "mid": "#06B6D4", "past": "#58565D", "soon": "#22C55E", "today": "#F43F5E" },
+  "leadDays": 1,
+  "listPast": 1,
+  "notified": [ "g_sggjeow|version_update|36", "g_sggjeow|char_banner_0|36", "g_1o9ivlq|version_preview|15" ],
+  "cdMidDays": 10,
+  "listCount": 4,
+  "viewStart": "2026-06-29",
+  "cdSoonDays": 3,
+  "showLabels": true,
+  "charSubOrder": [ "char_banner", "char_preview", "char_pv" ],
+  "customEvents": [
+    { "key": "version_preview", "name": "版本前瞻", "hidden": false, "offsets": [ 35 ] },
+    { "key": "version_update", "name": "版本更新", "offsets": [ 0 ] }
+  ],
+  "listEditMode": false,
+  "listSubOrder": {
+    "tease": [ "tease_0", "tease_1", "tease_0", "tease_1", "tease_0", "tease_1", "tease_0", "tease_1", "tease_0", "tease_1" ],
+    "char__0": [ "char_banner_0", "char_preview_0", "char_pv_0", "char_banner_0", "char_preview_0", "char_pv_0", "char_banner_0", "char_preview_0", "char_pv_0", "char_banner_0", "char_preview_0", "char_pv_0", "char_banner_0", "char_preview_0", "char_pv_0" ],
+    "char__1": [ "char_banner_1", "char_pv_1", "char_preview_1", "char_banner_1", "char_preview_1", "char_pv_1", "char_banner_1", "char_preview_1", "char_pv_1", "char_banner_1", "char_preview_1", "char_pv_1", "char_banner_1", "char_preview_1", "char_pv_1" ]
+  },
+  "visibleGames": { "g_1jpttky": true, "g_1o9ivlq": true, "g_h479sqi": true, "g_kqhysyi": true, "g_sggjeow": true },
+  "charGroupOrder": [ 0, 1, 2, 3, 4, 5 ],
+  "listGroupOrder": [
+    "norm__version_preview", "tease", "char__0", "norm__version_preview", "tease", "char__0", "char__1",
+    "norm__version_preview", "tease", "char__0", "char__1", "norm__version_preview", "tease", "char__0", "char__1",
+    "norm__version_preview", "tease", "char__0", "char__1"
+  ],
+  "listColumnOrder": [],
+  "teaseVersionOffset": 1,
+  "offsetOnlyConfirmed": true,
+  "updatedAt": 1787231860382
+};
+
 function defaultState() {
-  const g = (name, full, color, anchorTenths, anchorDate) => ({
-    id: 'g_' + Math.random().toString(36).slice(2, 9),
-    name, fullName: full, color,
-    icon: { type: 'letter', value: name[0], color },
-    baseCycleDays: DEFAULT_CYCLE,
-    anchorTenths, anchorDate, minorMax: 9,
-    eventHistory: {}, baseOffsets: {}, eventTitles: {}, versionDurations: {}, verNotes: {}, verEventOffsets: {}, verUpdateDates: {}, hiddenEventKeys: [], verHiddenEvents: {}, colDisplayNames: {}
-  });
-  const games = [
-    g('原神', 'Genshin Impact', '#22c55e', 50, '2024-08-28'),
-    g('崩坏：星穹铁道', 'Honkai: Star Rail', '#6366f1', 20, '2024-02-06'),
-    g('绝区零', 'Zenless Zone Zero', '#f97316', 10, '2024-07-04'),
-    g('崩坏3', 'Honkai Impact 3', '#ef4444', 42, '2024-01-01'),
-    g('鸣潮', 'Wuthering Waves', '#06b6d4', 42, '2024-05-23'),
-    g('终末地', 'Arknights: Endfield', '#14b8a6', 42, '2025-01-01'),
-  ];
-  games[0].icon = { type: 'file', value: 'icons/yuanshen.png', color: '#22c55e' };
-  games[1].icon = { type: 'file', value: 'icons/starrail.png', color: '#6366f1' };
-  games[2].icon = { type: 'file', value: 'icons/zenless.png', color: '#f97316' };
-  games[3].icon = { type: 'file', value: 'icons/bh3.png', color: '#ef4444' };
-  games[4].icon = { type: 'file', value: 'icons/wuthering.png', color: '#06b6d4' };
-  games[5].icon = { type: 'file', value: 'icons/endfield.png', color: '#14b8a6' };
-  const vis = {}; games.forEach(x => vis[x.id] = true);
-  return {
-    version: 1, games, leadDays: LEAD_DEFAULT, notified: [],
-    customEvents: JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE)),
-    viewStart: fmtDate(addDays(todayNoon(), -60)),
-    viewEnd: fmtDate(addDays(todayNoon(), 400)),
-    visibleGames: vis, dayW: 4, listCount: 8, listPast: 2, showLabels: true, listEditMode: false,
-    offsetOnlyConfirmed: false,
-    // 倒计时颜色分级（五档）：已过去 / 今天 / 临近 / 中期 / 远期
-    cdColors: { past: '#6b7280', today: '#3b82f6', soon: '#22c55e', mid: '#eab308', far: '#06b6d4' },
-    cdSoonDays: 10, // 临近上限（含）
-    cdMidDays: 30   // 中期上限（含）；超过则为远期
-  };
+  // 深拷贝，避免默认状态被运行期修改污染后续实例
+  return JSON.parse(JSON.stringify(USER_DEFAULT_STATE));
 }
 
 function migrateGame(g) {
