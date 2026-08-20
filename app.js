@@ -417,13 +417,14 @@ function verLabel(game, tenths) {
 const Storage = {
   backend: 'local',
   syncAdapter: null,
+  _pushTimer: null,
+  _pending: null,
   load() {
     try { const raw = localStorage.getItem(STORE_KEY); if (raw) return JSON.parse(raw); } catch (e) { console.warn('load fail', e); }
     return null;
   },
-  _pushTimer: null,
   _writeLocal(state) {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { console.warn('save fail', e); }
+    try { state.updatedAt = Date.now(); localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { console.warn('save fail', e); }
     if (fileHandle) { try { persistToFile(); } catch (e) { console.warn('persist fail', e); } }
   },
   // 仅存本地 + 本机文件，不碰云端（浏览/显隐/缩放等基础操作）
@@ -432,15 +433,25 @@ const Storage = {
   save(state) {
     this._writeLocal(state);
     if (this.syncAdapter && typeof this.syncAdapter.push === 'function') {
+      this._pending = state;
       clearTimeout(this._pushTimer);
-      this._pushTimer = setTimeout(() => {
-        try { this.syncAdapter.push(state); } catch (e) { console.warn('sync push fail', e); }
-      }, 1500);
+      this._pushTimer = setTimeout(() => this._flushPush(), 1500);
+    }
+  },
+  // 立即把待推送的数据发出去（缩短等待 / 退出页面前兜底）
+  _flushPush() {
+    if (this._pending && this.syncAdapter && typeof this.syncAdapter.push === 'function') {
+      try { this.syncAdapter.push(this._pending); } catch (e) { console.warn('sync push fail', e); }
+      this._pending = null;
     }
   },
   enableCloud(adapter) { this.syncAdapter = adapter; this.backend = 'cloud'; },
   disableCloud() { this.syncAdapter = null; this.backend = 'local'; }
 };
+
+/* 退出页面 / 切到后台前，把待推送的改动兜底发出，避免关页面丢数据 */
+window.addEventListener('beforeunload', () => { try { Storage._flushPush(); } catch (e) {} });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { try { Storage._flushPush(); } catch (e) {} } });
 
 /* ----------------------------- 云端同步（Supabase） ----------------------------- */
 /* 启用方法：去 https://supabase.com 建免费项目 → SQL Editor 执行 buildSql() → 把下面两项填好。
@@ -486,7 +497,13 @@ function onCloudLogin(user) {
   Storage.enableCloud(supabaseAdapter());
   updateCloudStatus();
   supabaseAdapter().pull().then(remote => {
-    if (remote && Array.isArray(remote.games)) { applyRemoteState(remote); toast('已从云端同步数据'); }
+    if (remote && Array.isArray(remote.games)) {
+      const remoteTs = remote.updatedAt || 0;
+      const localTs = state.updatedAt || 0;
+      if (remoteTs > localTs) { applyRemoteState(remote); toast('已从云端同步最新数据'); }
+      else if (localTs > remoteTs) { Storage.save(state); toast('本地数据较新，已上传到云端'); }
+      else { toast('云端与本地数据一致，无需同步'); }
+    }
     else { Storage.save(state); toast('已把本地数据上传到云端'); }
   }).catch(e => { console.warn('cloud pull fail', e); toast('云端拉取失败：' + (e && e.message ? e.message : '未知错误')); });
 }
@@ -582,6 +599,28 @@ async function cloudSignUp(email, pwd) {
   alert('注册成功。若项目开启了邮箱确认，请先查收验证邮件再登录；未开启则已自动登录。');
 }
 async function cloudSignOut() { if (supabase) await supabase.auth.signOut(); }
+
+// 立即把本地 / 云端按「后写者胜」手动同步一次
+async function syncNow() {
+  if (!supabaseConfigured()) { alert('未配置 Supabase（app.js 顶部填好 URL 与 anon key），无法同步。'); return; }
+  if (!supabaseLibReady()) { alert('Supabase 库尚未加载完成（可能网络问题），请稍后重试。'); return; }
+  if (!cloudUser) { alert('请先在上方登录云端账号，再点「立即同步」。'); return; }
+  toast('正在同步…');
+  try {
+    const remote = await supabaseAdapter().pull();
+    if (remote && Array.isArray(remote.games)) {
+      const remoteTs = remote.updatedAt || 0;
+      const localTs = state.updatedAt || 0;
+      if (remoteTs > localTs) { applyRemoteState(remote); toast('已从云端拉取最新数据'); }
+      else { await supabaseAdapter().push(state); toast('已把本地数据上传到云端'); }
+    } else {
+      await supabaseAdapter().push(state); toast('已把本地数据上传到云端');
+    }
+  } catch (e) {
+    console.warn('syncNow fail', e);
+    toast('同步失败：' + (e && e.message ? e.message : '未知错误'));
+  }
+}
 
 function updateCloudStatus() {
   const el = document.getElementById('cloud-status');
@@ -4029,6 +4068,7 @@ function openSettings() {
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <span class="muted">状态：<b id="cloud-status">未配置</b></span>
           <button type="button" class="ghost" id="c-sql">查看建表 SQL</button>
+          <button type="button" class="primary" id="c-sync">☁ 立即同步到云端</button>
         </div>
       </div>
       <hr class="set-sep">
@@ -4097,6 +4137,8 @@ function openSettings() {
   if (cSignup) cSignup.onclick = () => { if (cEmail.value && cPwd.value) cloudSignUp(cEmail.value.trim(), cPwd.value); };
   const cLogout = body.querySelector('#c-logout');
   if (cLogout) cLogout.onclick = () => { cloudSignOut(); };
+  const cSync = body.querySelector('#c-sync');
+  if (cSync) cSync.onclick = () => { syncNow(); };
   const cSql = body.querySelector('#c-sql');
   if (cSql) cSql.onclick = () => {
     const sql = buildSql();
