@@ -11,14 +11,14 @@ console.log('[GVS] ✅ 加载 app.js (v20260817ad) — 偏移改用最邻近确�
 /* 每个版本周期内派生的固定事件。offsets 为相对"版本更新日(第0天)"的默认偏移天数。
  * 卡池更新由「角色卡池」事件替代，故默认模板不再含 banner。
  * 这是默认模板；用户可在设置中增删隐藏，实际使用 state.customEvents。 */
+/** 新角色爆料（teaser）默认偏移天数——相对版本更新日的偏移（版本末期预告），列表/时间轴/弹窗共用 */
+const TEASE_OFF = 33;
 const EVENT_DEFS_TEMPLATE = [
   { key: 'version_update',  name: '版本更新', offsets: [0] },
   // 新角色爆料不再作为静态顶层事件；改为按 game.charCount 动态生成（每个角色一个子类，见 generateCharEvents），直接显示对应角色的备注名
   // 角色预告/PV 不再作为独立顶层事件，改为按 game.charCount 动态生成（见 generateCharEvents）
   { key: 'version_preview', name: '版本前瞻', offsets: [35] },
 ];
-// 向后兼容别名
-const EVENT_DEFS = EVENT_DEFS_TEMPLATE;
 
 /**
  * 根据角色数量动态生成角色相关事件定义。
@@ -28,8 +28,8 @@ const EVENT_DEFS = EVENT_DEFS_TEMPLATE;
 function generateCharEvents(charCount) {
   const n = Math.max(1, Math.min(6, charCount || 2)); // 限制 1~6 个角色
   const CHARS = ['一', '二', '三', '四', '五', '六'];
-  // 基准偏移：角色1卡池=卡池上半(0)，角色2卡池=+1天，以此类推
-  const baseOffsets = [0, 1, 2, 3, 4, 5];
+  // 基准偏移：角色1卡池=版本更新当天(0)，角色2卡池=版本更新+21天（下半卡池）
+  const baseOffsets = [0, 21, 2, 3, 4, 5];
   // 子项定义：卡池 / 预告 / PV（相对角色卡池日的偏移）
   const SUB_DEFS = {
     char_banner:   { sub: ['卡池'], off: 0 },
@@ -45,7 +45,6 @@ function generateCharEvents(charCount) {
   const evts = [];
   // 新角色爆料：按角色拆分为多个子类（数量=角色数），独立成一块（不混入角色分组）
   // 绑定到「当前运行版本 + teaseVersionOffset」的目标版本角色备注名（见 renderList）
-  const TEASE_OFF = 33; // 相对版本更新日的偏移（版本末期预告），仅用于计算事件日期（列表不显示）
   groupOrder.forEach(i => {
     const label = CHARS[i] || String(i + 1);
     evts.push({
@@ -59,10 +58,12 @@ function generateCharEvents(charCount) {
     subOrder.forEach(key => {
       const sd = SUB_DEFS[key]; if (!sd) return;
       const isBanner = key === 'char_banner';
+      // 统一格式：[类型]·角色X（卡池·角色二 / PV·角色二 / 预告·角色二）
       evts.push({
-        key, name: '角色' + label, offsets: [base + sd.off], sub: sd.sub,
+        key, name: sd.sub[0], offsets: [base + sd.off], sub: ['·角色' + label],
         charIndex: i, _isChar: true,
-        _charParent: isBanner ? null : 'char_banner_' + i
+        // 卡池事件绑定到版本更新日期（固定偏移 = 角色基准偏移）
+        ...(isBanner ? { _bindTo: { src: 'version_update', off: base } } : {})
       });
     });
   });
@@ -141,32 +142,154 @@ function gameActiveEvents(game) {
 /** 列设置面板专用：返回所有事件定义（含被隐藏的），确保用户能恢复 */
 function allGameEventsForSettings(game) {
   const base = activeEvents().filter(e => e.hidden !== true);
-  const staticEvts = base.filter(e => !e._isChar);
+  const staticEvts = base.filter(e => !e._isChar && !e._tease);
   const charCount = (game && game.charCount) || 2;
   return staticEvts.concat(generateCharEvents(charCount));
 }
 
-/* 事件类型配色（更丰富的区分度） */
+/* 事件类型配色 — 每个角色一个独立色系，同角色的爆料/卡池/预告/PV共用同一色系 */
 const EVENT_COLORS = {
   version_update: '#16a34a',
   banner_0: '#2563eb', banner_1: '#38bdf8',
-  char_tease: '#f97316',
-  char_preview: '#a855f7', char_pv: '#ec4899',
-  version_preview: '#e11d48',
-  // 动态角色卡池：每个角色一组渐变色
-  char_banner_0: '#f43f5e', char_preview_0: '#fb7185', char_pv_0: '#fda4af',
-  char_banner_1: '#7c3aed', char_preview_1: '#a78bfa', char_pv_1: '#c4b5fd',
-  char_banner_2: '#0369a1', char_preview_2: '#38bdf8', char_pv_2: '#7dd3fc',
-  char_banner_3: '#15803d', char_preview_3: '#4ade80', char_pv_3: '#86efac',
-  char_banner_4: '#a16207', char_preview_4: '#fbbf24', char_pv_4: '#fde68a',
-  char_banner_5: '#be185d', char_preview_5: '#f472b6', char_pv_5: '#fbcfe8',
+  char_tease: '#ea580c',
+  char_preview: '#8b5cf6', char_pv: '#ec4899',
+  version_preview: '#dc2626',
+  // 角色一：玫红系（醒目暖色）
+  char_banner_0:  '#e11d48',
+  char_preview_0: '#fb7185',
+  char_pv_0:      '#fda4af',
+  // 角色二：靛蓝紫系（冷艳深邃）
+  char_banner_1:  '#6366f1',
+  char_preview_1: '#a5b4fc',
+  char_pv_1:      '#c7d2fe',
+  // 角色三：青绿系（清新明亮）
+  char_banner_2:  '#0891b2',
+  char_preview_2: '#22d3ee',
+  char_pv_2:      '#67e8f9',
+  // 角色四：翠绿系（自然活力）
+  char_banner_3:  '#059669',
+  char_preview_3: '#34d399',
+  char_pv_3:      '#86efac',
+  // 角色五：琥珀橙系（温暖亮眼）
+  char_banner_4:  '#d97706',
+  char_preview_4: '#fbbf24',
+  char_pv_4:      '#fde68a',
+  // 角色六：品红洋红系（华丽独特）
+  char_banner_5:  '#c026d3',
+  char_preview_5: '#e879f9',
+  char_pv_5:      '#f5d0fe',
+  // 爆料：独立的深橙色（不与任何角色共用，确保组头区分度）
+  _tease_color:   '#ea580c',
 };
+
+/* —— 组头颜色池（鲜艳实色，按分组语义/位置分配，保证相邻分组色相差异明显）——
+   版本前瞻=红、新角色爆料=橙；角色位从紫→蓝→青→金→琥珀→品红…依次拉开，避免与红/绿撞色 */
+const GROUP_HEADER_COLORS = {
+  version_preview: '#dc2626',                              // 版本前瞻 - 红
+  version_update:  '#16a34a',                              // 版本更新 - 绿
+  banner:          ['#0284c7', '#0891b2'],                // 卡池0/1 - 蓝 / 蓝绿
+  tease:           '#ea580c',                              // 新角色爆料 - 橙
+  char: ['#7c3aed', '#2563eb', '#0d9488', '#ca8a04', '#d97706', '#c026d3',
+         '#0284c7', '#ef4444', '#15803d', '#0891b2', '#db2777', '#9333ea'],
+};
+
+/* —— 角色备注标签颜色池（淡底+深字，按角色身份分配，12色轮转复用）——
+   身份名来自 game.charNames 去重值；超过12个身份时按序号 % 12 复用最早用过的颜色 */
+const CHAR_TAG_COLORS = [
+  { bg: '#fde7ec', fg: '#be123c' }, // 玫红
+  { bg: '#e7e9fd', fg: '#3730a3' }, // 靛蓝
+  { bg: '#d9f5f1', fg: '#0f766e' }, // 青绿
+  { bg: '#e3f7e8', fg: '#15803d' }, // 翠绿
+  { bg: '#fdecd8', fg: '#b45309' }, // 琥珀
+  { bg: '#fbeafd', fg: '#86198f' }, // 品红
+  { bg: '#e0f2fe', fg: '#075985' }, // 天蓝
+  { bg: '#fde8e8', fg: '#b91c1c' }, // 番茄
+  { bg: '#f1e9fd', fg: '#5b21b6' }, // 紫罗兰
+  { bg: '#f3f9e0', fg: '#3f6212' }, // 橄榄
+  { bg: '#ffedd5', fg: '#c2410c' }, // 粉橙
+  { bg: '#d6f3f8', fg: '#0e7490' }, // 蓝绿
+];
+
+// 组头（分组）取鲜艳实色
+function headerColorFor(origKey, type, charIndex) {
+  if (type === 'tease') return GROUP_HEADER_COLORS.tease;
+  if (type === 'char') return GROUP_HEADER_COLORS.char[(charIndex || 0) % GROUP_HEADER_COLORS.char.length];
+  if (origKey === 'version_preview') return GROUP_HEADER_COLORS.version_preview;
+  if (origKey === 'version_update') return GROUP_HEADER_COLORS.version_update;
+  if (origKey === 'banner_0' || origKey === 'banner') return GROUP_HEADER_COLORS.banner[0];
+  if (origKey === 'banner_1') return GROUP_HEADER_COLORS.banner[1];
+  return '#64748b';
+}
+
+// 角色身份 → 颜色序号映射（同名共享同一序号；身份名 = game.charNames 全部去重值）
+function buildIdentityColors(game) {
+  const map = {}; let i = 0;
+  if (game.charNames) {
+    for (const k in game.charNames) {
+      const n = game.charNames[k];
+      if (n && !(n in map)) map[n] = i++;
+    }
+  }
+  return map;
+}
+
+// 按角色名取标签配色；未匹配返回 null（调用方回退旧逻辑）
+function tagColorFor(name, identityColors) {
+  if (identityColors && name && identityColors[name] != null) {
+    return CHAR_TAG_COLORS[identityColors[name] % CHAR_TAG_COLORS.length];
+  }
+  return null;
+}
+
+/* —— 标签尺寸等级（按重要程度）——
+   默认优先级（5 级）：版本更新 > 版本前瞻 > 角色卡池 > 新角色爆料 > 角色预告/PV
+   每个游戏可通过 game.tagSizeMap 独立调整（设置面板排序），不设置时回退到全局默认 state.tagSizeMap，再回退到本常量
+   尺寸等级：0=xl(特大) 1=lg(大) 2=md(中) 3=sm(小) 4=xs(极小) */
+const DEFAULT_TAG_SIZES = {
+  version_update:  0,    // xl — 最重要
+  version_preview: 1,    // lg
+  char_banner:     2,    // md
+  char_tease:      3,    // sm
+  char_preview:    4,    // xs
+  char_pv:         4,    // xs
+  banner_0:        2,
+  banner_1:        2,
+};
+const TAG_SIZE_CLASSES = ['tag-xl', 'tag-lg', 'tag-md', 'tag-sm', 'tag-xs'];
+const TAG_SIZE_LABELS = ['特大', '大', '中', '小', '极小'];
+// 设置面板里可排序的「事件类型 → 尺寸」条目（按类型统一，不区分角色索引）
+const TAG_SIZE_DEFS = [
+  { key: 'version_update', label: '版本更新',   def: 0 },
+  { key: 'version_preview', label: '版本前瞻',   def: 1 },
+  { key: 'char_banner',    label: '角色卡池',   def: 2 },
+  { key: 'char_tease',     label: '新角色爆料', def: 3 },
+  { key: 'char_preview',   label: '角色预告',   def: 4 },
+  { key: 'char_pv',        label: '角色PV',     def: 4 },
+];
+// 当前正在设置「标签大小排序」的目标：'__default__' = 全局默认，否则为 game.id
+let curTagSizeGame = '__default__';
+
+/** 获取事件标签的尺寸 CSS 类名 */
+function getTagSizeClass(defKey, charIndex, game) {
+  // 优先用每游戏自定义配置，其次全局默认，最后常量默认
+  const map = (game && game.tagSizeMap) || state.tagSizeMap || DEFAULT_TAG_SIZES;
+  let key = defKey;
+  // 角色类事件按类型统一取尺寸（不区分角色索引）
+  if (key === 'char_banner' || key === 'char_preview' || key === 'char_pv' || key === 'char_tease') {
+    key = defKey;
+  }
+  const level = (map && map[key]) != null ? map[key] : DEFAULT_TAG_SIZES[defKey] ?? 2;
+  return TAG_SIZE_CLASSES[level] || 'tag-sm';
+}
 function eventColor(defKey, idx) {
   if (defKey === 'banner') return EVENT_COLORS['banner_' + idx];
-  // 角色事件带 charIndex
-  if (defKey === 'char_banner' || defKey === 'char_preview' || defKey === 'char_pv' || defKey === 'char_tease') {
-    const baseKey = defKey === 'char_tease' ? 'char_banner' : defKey; // 爆料用对应角色卡池的配色，视觉绑定角色
-    return EVENT_COLORS[baseKey + '_' + (idx ?? 0)] || EVENT_COLORS[defKey] || '#64748b';
+  // 角色事件（卡池/预告/PV）：按角色索引取各自色系
+  if (defKey === 'char_banner' || defKey === 'char_preview' || defKey === 'char_pv') {
+    return EVENT_COLORS[defKey + '_' + (idx ?? 0)] || '#64748b';
+  }
+  // 爆料：使用独立橙色（不再映射到 char_banner，避免与角色一组头撞色）
+  if (defKey === 'char_tease') {
+    return EVENT_COLORS['_tease_color'] || '#ea580c';
   }
   return EVENT_COLORS[defKey] || '#64748b';
 }
@@ -191,6 +314,77 @@ function addDays(dt, n) { return new Date(dt.getTime() + n * DAY); }
 function stripTime(dt) { return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 12, 0, 0); }
 function diffDays(a, b) { return Math.round((stripTime(a) - stripTime(b)) / DAY); }
 function todayNoon() { const t = new Date(); t.setHours(12, 0, 0, 0); return t; }
+
+// 倒计时颜色分级：根据剩余天数返回对应颜色（优先用设置里自定义的值，缺省回落默认）
+function cdColor(cd) {
+  const c = state.cdColors || {};
+  const soon = state.cdSoonDays || 10;
+  const mid = state.cdMidDays || 30;
+  if (cd == null) return c.past || '#6b7280';
+  if (cd < 0) return c.past || '#6b7280';
+  if (cd === 0) return c.today || '#3b82f6';
+  if (cd <= soon) return c.soon || '#22c55e';
+  if (cd <= mid) return c.mid || '#eab308';
+  return c.far || '#06b6d4';
+}
+
+// 倒计时调色板预设（16 色）
+const CD_PALETTE = ['#ef4444', '#f97316', '#fb923c', '#eab308', '#facc15', '#a3e635', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6', '#d946ef', '#ec4899', '#f43f5e'];
+
+// 外观设置页：倒计时颜色分级卡片
+function renderAppearanceTab() {
+  const c = state.cdColors || {};
+  const soon = state.cdSoonDays || 10;
+  const mid = state.cdMidDays || 30;
+  const tiers = [
+    { key: 'past', name: '已过去', desc: '倒计时为负（含更早版本）' },
+    { key: 'today', name: '今天', desc: '倒计时恰好为 0 天' },
+    { key: 'soon', name: '临近', desc: '1 天至', thr: soon, thrId: 's-cd-soon' },
+    { key: 'mid', name: '中期', desc: '至', thr: mid, thrId: 's-cd-mid' },
+    { key: 'far', name: '远期', desc: '超过 ' + mid + ' 天的未来事件' }
+  ];
+  let cards = '';
+  tiers.forEach(t => {
+    const col = (c[t.key] || '#6b7280').toUpperCase();
+    let thrHtml = '';
+    if (t.thrId) {
+      thrHtml = `<span class="cd-thr"><input type="number" class="cd-thr-inp" id="${t.thrId}" min="1" max="365" value="${t.thr}" style="width:44px"> 天</span>`;
+    }
+    const palSw = CD_PALETTE.map(p => `<span class="cd-pal-sw${p.toUpperCase() === col ? ' sel' : ''}" data-col="${p}" style="background:${p}"></span>`).join('');
+    cards += `<div class="cd-tier" data-tier="${t.key}">` +
+      `<div class="cd-tier-main">` +
+        `<span class="cd-tier-dot" style="background:${col}"></span>` +
+        `<div class="cd-tier-info"><div class="cd-tier-name">${t.name}</div>` +
+          `<div class="cd-tier-desc">${t.desc} ${thrHtml}</div></div>` +
+        `<button type="button" class="cd-swatch" data-tier="${t.key}" data-color="${col}" style="background:${col}" title="点击展开调色板"></button>` +
+      `</div>` +
+      `<div class="cd-palette hidden" data-tier="${t.key}">` +
+        `<div class="cd-pal-grid">${palSw}</div>` +
+        `<div class="cd-pal-custom"><input type="color" class="cd-color-inp" value="${col}"><span>HEX</span>` +
+          `<input type="text" class="cd-hex-inp" value="${col}" style="width:84px"></div>` +
+      `</div>` +
+    `</div>`;
+  });
+  return `<div class="field"><label>倒计时颜色分级</label>` +
+    `<div class="muted" style="margin-bottom:8px">列表 / 时间轴 / 月历中的倒计时数字按剩余天数套用以下颜色。点色块可展开调色板（16 预设色 + 自定义），「临近 / 中期」的分界天数也可改。</div>` +
+    `<div class="cd-tiers">${cards}</div></div>`;
+}
+
+// 外观：把某档颜色同步到色块/圆点/取色器/HEX/预设高亮
+function setTierColor(body, tier, col, skipColorInp, skipHexInp) {
+  col = col.toUpperCase();
+  const wrap = body.querySelector('.cd-tier[data-tier="' + tier + '"]');
+  if (!wrap) return;
+  const sw = wrap.querySelector('.cd-swatch');
+  const dot = wrap.querySelector('.cd-tier-dot');
+  const ci = wrap.querySelector('.cd-color-inp');
+  const hx = wrap.querySelector('.cd-hex-inp');
+  if (sw) { sw.style.background = col; sw.dataset.color = col; }
+  if (dot) dot.style.background = col;
+  if (ci && !skipColorInp) ci.value = col;
+  if (hx && !skipHexInp) hx.value = col;
+  wrap.querySelectorAll('.cd-pal-sw').forEach(ps => ps.classList.toggle('sel', ps.dataset.col.toUpperCase() === col));
+}
 
 /* 版本号：支持按版本段设置不同小版本号上限(minorMax)。
  * 数据结构：game.minorMax = 全局默认(如9)；game.minorMaxBreakpoints = [{atTenths, minorMax}, ...]
@@ -256,7 +450,6 @@ const SUPABASE_ANON_KEY = 'sb_publishable_Ag80tkGzn9UIFhbNpqYMUg_ViZP0qfC';
 
 let supabase = null;
 let cloudUser = null;           // { id, email }
-let cloudReady = false;
 
 function supabaseConfigured() { return !!SUPABASE_URL && !!SUPABASE_ANON_KEY; }
 function supabaseLibReady() { return typeof window.supabase !== 'undefined'; }
@@ -299,7 +492,7 @@ function onCloudLogin(user) {
 }
 
 function onCloudLogout() {
-  cloudUser = null; cloudReady = false;
+  cloudUser = null;
   Storage.disableCloud();
   updateCloudStatus();
 }
@@ -542,7 +735,11 @@ function defaultState() {
     viewStart: fmtDate(addDays(todayNoon(), -60)),
     viewEnd: fmtDate(addDays(todayNoon(), 400)),
     visibleGames: vis, dayW: 4, listCount: 8, listPast: 2, showLabels: true, listEditMode: false,
-    offsetOnlyConfirmed: false
+    offsetOnlyConfirmed: false,
+    // 倒计时颜色分级（五档）：已过去 / 今天 / 临近 / 中期 / 远期
+    cdColors: { past: '#6b7280', today: '#3b82f6', soon: '#22c55e', mid: '#eab308', far: '#06b6d4' },
+    cdSoonDays: 10, // 临近上限（含）
+    cdMidDays: 30   // 中期上限（含）；超过则为远期
   };
 }
 
@@ -561,6 +758,8 @@ function migrateGame(g) {
   if (!g.charNames) g.charNames = {}; // key: "tenths|charIndex" → 角色名，如 "70|0": "奥黛塔"
   if (!g.colDisplayNames) g.colDisplayNames = {}; // 表头自定义名覆盖：key=groupId 或 colId → 显示名（独立于备注）
   if (typeof g.charCount !== 'number') g.charCount = 2;
+  // 数据迁移：teaser offset 从旧 key（target 版本）搬到新 key（src 版本）
+  migrateTeaserOffsetsToSrc(g);
 }
 
 async function init() {
@@ -651,9 +850,39 @@ async function init() {
 }
 
 /* ----------------------------- 版本计算 ----------------------------- */
+/** 一次性数据迁移：把旧版 teaser 数据（按 target 版本存）搬到新版位置（按 src 版本存）
+ *  旧：verEventOffsets['71|char_tease_X'] = -37（v7.1 updateDate + (-37) = 8月17）
+ *  新：verEventOffsets['70|char_tease_X'] = +5（v7.0 updateDate + (+5) = 8月17）
+ *  同一日期不同 offset，但渲染效果相同。
+ */
+function migrateTeaserOffsetsToSrc(game) {
+  if (!game || !game.verEventOffsets) return;
+  if (game._teaserMigrated) return; // 防止反复跑
+  game._teaserMigrated = true;
+  const tOff = game.teaseVersionOffset || 1;
+  const sorted = listGameVersions(game).slice().sort((a, b) => a.tenths - b.tenths);
+  sorted.forEach((v, idx) => {
+    if (tOff <= 0) return;
+    const target = sorted[idx + tOff];
+    if (!target) return;
+    ['char_tease_0', 'char_tease_1', 'char_tease_2', 'char_tease_3', 'char_tease_4', 'char_tease_5'].forEach(hk => {
+      const oldKey = String(target.tenths) + '|' + hk;
+      const newKey = String(v.tenths) + '|' + hk;
+      if (game.verEventOffsets[oldKey] !== undefined && game.verEventOffsets[newKey] === undefined) {
+        // 旧 offset 是相对 target.updateDate 的；新 offset 相对 src.updateDate
+        // 转换：newOff = oldOff + (target.updateDate - src.updateDate)
+        const oldOff = game.verEventOffsets[oldKey];
+        const newOff = oldOff + diffDays(target.updateDate, v.updateDate);
+        game.verEventOffsets[newKey] = newOff;
+      }
+    });
+  });
+}
 function durationOf(game, seq) {
   const d = game.versionDurations[String(seq)];
-  return (typeof d === 'number' && d >= 7) ? d : game.baseCycleDays;
+  if (typeof d === 'number' && d >= 7) return d;
+  // 无自定义时长时返回 baseCycleDays（后续 genGameVersions 会用日期间隔覆盖）
+  return game.baseCycleDays;
 }
 function evTitleKey(seq, hk) { return seq + '|' + hk; }
 
@@ -677,23 +906,27 @@ function offsetIsConfirmed(game, hk, tenths) {
 /** 偏移来源标记（纯色小圆点，图例在控制栏） */
 function offsetSrcDot(source) {
   if (!source || source === 'confirmed') {
-    return `<span class="off-dot off-dot-confirmed" title="你手动填写的日期"></span>`;
+    return `<span class="off-dot off-dot-confirmed" title="官方日期（你已确认填写）"></span>`;
   }
   if (source === 'inherited') {
-    return `<span class="off-dot off-dot-inherited" title="自动沿用你最近填过的日期"></span>`;
+    return `<span class="off-dot off-dot-inherited" title="计算所得（自动沿用你最近填过的日期）"></span>`;
   }
   if (source === 'base') {
-    return `<span class="off-dot off-dot-base" title="使用全局基准偏移量"></span>`;
+    return `<span class="off-dot off-dot-base" title="按全局基准偏移量推算"></span>`;
   }
-  return `<span class="off-dot off-dot-default" title="系统默认偏移（无参考数据）"></span>`;
+  if (source === 'bound') {
+    return `<span class="off-dot off-dot-bound" title="绑定（自动跟随源事件日期）"></span>`;
+  }
+  return `<span class="off-dot off-dot-default" title="未设置（无参考数据，系统默认占位）"></span>`;
 }
 /** 偏移来源图例 HTML（放在列表视图控制栏） */
 function offsetLegendHtml() {
   return `<span class="off-legend" id="off-legend">` +
-    `<span class="off-dot off-dot-confirmed"></span><span class="muted" style="font-size:11px">你手动填写</span>` +
-    `<span class="off-dot off-dot-inherited"></span><span class="muted" style="font-size:11px">自动沿用</span>` +
-    `<span class="off-dot off-dot-base"></span><span class="muted" style="font-size:11px">全局基准</span>` +
-    `<span class="off-dot off-dot-default"></span><span class="muted" style="font-size:11px">系统默认</span>` +
+    `<span class="off-dot off-dot-confirmed"></span><span class="muted" style="font-size:11px">✓ 官方日期（已确认）</span>` +
+    `<span class="off-dot off-dot-bound"></span><span class="muted" style="font-size:11px">🔗 绑定（自动跟随源事件）</span>` +
+    `<span class="off-dot off-dot-inherited"></span><span class="muted" style="font-size:11px">↻ 计算所得（自动沿用）</span>` +
+    `<span class="off-dot off-dot-base"></span><span class="muted" style="font-size:11px">⚙ 基准推算</span>` +
+    `<span class="off-dot off-dot-default"></span><span class="muted" style="font-size:11px">○ 未设置（无参考数据）</span>` +
     `</span>`;
 }
 /** 获取默认偏移量（不含逐版本覆盖，用于判断是否需要存储覆盖） */
@@ -702,17 +935,6 @@ function getDefaultOffset(game, hk) {
   if (h && h.length) return Math.round(h.reduce((a, b) => a + b, 0) / h.length);
   const bo = game && game.baseOffsets && game.baseOffsets[hk];
   return (typeof bo === 'number') ? bo : null; // null = 使用 defOff（由调用方传入）
-}
-function recordOffset(game, hk, off) {
-  if (!game.eventHistory) game.eventHistory = {};
-  if (!game.eventHistory[hk]) game.eventHistory[hk] = [];
-  game.eventHistory[hk].push(off);
-  if (game.eventHistory[hk].length > 12) game.eventHistory[hk].shift();
-}
-function learnedAvg(game, hk) {
-  const h = game && game.eventHistory && game.eventHistory[hk];
-  if (h && h.length) return Math.round(h.reduce((a, b) => a + b, 0) / h.length);
-  return null;
 }
 
 function genGameVersions(game, optRangeStart, optRangeEnd) {
@@ -741,8 +963,9 @@ function genGameVersions(game, optRangeStart, optRangeEnd) {
         // 该版本是否隐藏此事件（per-version 隐藏 或 列级隐藏）
         const hidden = !!(game.verHiddenEvents && game.verHiddenEvents[t + '|' + hk]) || !!def._hidden;
         events.push({
-          defKey: def.key, historyKey: hk, sub: def.offsets.length > 1 ? idx : null,
+          def, defKey: def.key, historyKey: hk, sub: def.offsets.length > 1 ? idx : null,
           charIndex: def.charIndex != null ? def.charIndex : null,
+          _isChar: !!def._isChar, _tease: !!def._tease,
           name, title, date: addDays(updateDate, off), offset: off, hidden
         });
       });
@@ -763,12 +986,27 @@ function genGameVersions(game, optRangeStart, optRangeEnd) {
     d -= durationOf(game, t) * DAY; t -= 1;
   }
   resolveInherited(game, out);
+  // 自动计算时长：没有自定义时长的版本，用与下一版本的日期间隔作为时长
+  // 这样在列表里改了更新日期后，时长自动同步到时间轴/月历/弹窗
+  // 最后一个版本（无下一版本）至少保持 baseCycleDays 完整显示
+  const sorted = [...out].sort((a, b) => a.updateDate.getTime() - b.updateDate.getTime());
+  for (let i = 0; i < sorted.length; i++) {
+    const v = sorted[i];
+    if (game.versionDurations[String(v.tenths)] != null) continue; // 有自定义则跳过
+    if (i < sorted.length - 1) {
+      const gap = diffDays(sorted[i + 1].updateDate, v.updateDate);
+      if (gap >= 7) v.duration = gap; // 至少7天才有效
+    } else {
+      // 最后一个版本：没有下一版本衔接，确保至少显示完整周期
+      if (v.duration < game.baseCycleDays) v.duration = game.baseCycleDays;
+    }
+  }
   return out;
 }
 
 /**
  * 为每个事件标注偏移来源，并按「最近确认值」回填未填写版本的偏移。
- * 来源优先级：confirmed(你填的) > inherited(沿用最近一次你填的) > base(全局基准) > default(默认)
+ * 来源优先级：confirmed(你填的) > inherited(计算所得/沿用) > bound(绑定派生) > base(全局基准) > default(默认)
  * 反转语义：无论 state.offsetOnlyConfirmed 开关是否开启，只要有你填过的参考数据就自动沿用（黄点填充真实日期）。
  * 仅当开关开启且某事件「完全没有任何你填过的参考数据」时，才标为 noRef（列表视图留空，不显示基准/默认推算日期）。
  * @param {Array} versions genGameVersions 已生成的版本数组（按时间无序，本函数内部排序）
@@ -788,17 +1026,35 @@ function resolveInherited(game, versions) {
 
   // 诊断：打印找到的已确认数据
   const confKeys = Object.keys(conf);
-  const stats = { confirmed: 0, inherited: 0, base: 0, default: 0, empty: 0 };
+  const stats = { confirmed: 0, bound: 0, inherited: 0, base: 0, default: 0, empty: 0 };
   if (confKeys.length) {
-    console.log(`[GVS] 🔍 ${game.name} 偏移继承：找到 ${confKeys.length} 个事件有确认值`, confKeys.map(k => `${k}(${conf[k].length}个)`).join(', '), 'onlyConfirmed=', onlyConfirmed);
+    console.debug(`[GVS] 🔍 ${game.name} 偏移继承：找到 ${confKeys.length} 个事件有确认值`, confKeys.map(k => `${k}(${conf[k].length}个)`).join(', '), 'onlyConfirmed=', onlyConfirmed);
+  }
+
+  // 辅助：获取某版本某事件的最终日期（用于绑定源解析）
+  // 当前仅支持绑定到 version_update（用户确认需求：卡池跟随版本更新）
+  function srcEventDate(v, srcHk) {
+    if (srcHk === 'version_update') return v.updateDate;
+    return null;
   }
 
   versions.forEach(v => v.events.forEach(ev => {
+    // 版本更新事件的日期 = v.updateDate，单独存在 verUpdateDates 里，verEventOffsets 里查不到（偏移永远为0）
+    // 需特殊判断：用户显式设过本版本日期→已确认；本游戏有任意已设日期→沿用推算；都没有→默认
+    if (ev.defKey === 'version_update') {
+      if (game.verUpdateDates && game.verUpdateDates[String(v.tenths)]) {
+        ev.source = 'confirmed'; ev.noRef = false; stats.confirmed++;
+      } else if (game.verUpdateDates && Object.keys(game.verUpdateDates).length > 0) {
+        ev.source = 'inherited'; ev.noRef = false; stats.inherited++;
+      } else {
+        ev.source = 'default'; ev.noRef = false; stats.default++;
+      }
+      return;
+    }
     if (offsetIsConfirmed(game, ev.historyKey, v.tenths)) { ev.source = 'confirmed'; ev.noRef = false; stats.confirmed++; return; }
+    // 继承：沿用最近一次你填过的偏移（计算所得，优先级高于绑定）
     const arr = conf[ev.historyKey];
-    // 反转语义：只要有你填过的参考数据，无论开关都自动沿用（填黄点 + 真实日期）
     if (arr && arr.length) {
-      // 找时间上最近的已确认版本
       let best = arr[0], bd = Math.abs(arr[0].ms - v.updateDate.getTime());
       for (const c of arr) { const d = Math.abs(c.ms - v.updateDate.getTime()); if (d < bd) { bd = d; best = c; } }
       ev.offset = best.off;
@@ -808,6 +1064,19 @@ function resolveInherited(game, versions) {
       stats.inherited++;
       return;
     }
+    // 绑定事件：从源事件派生日期（仅当无继承数据时才生效，作为初始默认值）
+    if (ev.def && ev.def._bindTo) {
+      const binding = ev.def._bindTo;
+      const srcDate = srcEventDate(v, binding.src);
+      if (srcDate) {
+        ev.date = addDays(srcDate, binding.off);
+        ev.offset = diffDays(ev.date, v.updateDate);
+        ev.source = 'bound';
+        ev.noRef = false;
+        stats.bound++;
+        return;
+      }
+    }
     const bo = game.baseOffsets && game.baseOffsets[ev.historyKey];
     if (typeof bo === 'number' && !onlyConfirmed) { ev.source = 'base'; ev.noRef = false; stats.base++; return; }
     // 开关开启且无任何你填过的参考数据：标为未填（列表视图留空，不显示基准/默认推算日期）
@@ -816,20 +1085,38 @@ function resolveInherited(game, versions) {
     stats.default++;
     if (onlyConfirmed) stats.empty++;
   }));
-  console.log(`[GVS] 📊 ${game.name} 偏移来源统计：确认${stats.confirmed} 沿用${stats.inherited} 基准${stats.base} 默认${stats.default}` + (onlyConfirmed ? ` 留空${stats.empty}` : ''));
+  console.debug(`[GVS] 📊 ${game.name} 偏移来源统计：确认${stats.confirmed} 绑定${stats.bound} 沿用${stats.inherited} 基准${stats.base} 默认${stats.default}` + (onlyConfirmed ? ` 留空${stats.empty}` : ''));
 }
 
 function collectEvents() {
-  const list = [];
+  const raw = [];
   state.games.forEach(game => {
     if (visibleGames[game.id] === false) return;
     genGameVersions(game).forEach(v => {
       v.events.forEach(ev => {
-        list.push({ game, version: v, ev, date: ev.date, key: game.id + '|' + ev.historyKey + '|' + v.tenths });
+        // 过滤隐藏的事件（与列表视图一致：per-version 隐藏 + 列级隐藏）
+        if (ev.hidden) return;
+        raw.push({ game, version: v, ev, date: ev.date, key: game.id + '|' + ev.historyKey + '|' + v.tenths });
       });
     });
   });
-  return list;
+  // 去重：同一游戏同一角色同类事件（爆料/卡池/预告/PV）只保留日期最接近今天的一条
+  // 避免 v7.0 和 v7.1 各出一条「爆料·角色二」导致月历重复
+  const todayMs = todayNoon().getTime();
+  const seen = new Map(); // dedupeKey → best item
+  raw.forEach(item => {
+    const dk = item.ev.defKey !== 'version_update' && item.ev.defKey !== 'version_preview'
+      ? (item.game.id + '|' + item.ev.defKey + '|' + (item.ev.charIndex ?? 0))
+      : null;
+    if (!dk) { seen.set('__raw__' + item.key, item); return; }
+    const existing = seen.get(dk);
+    if (!existing) { seen.set(dk, item); return; }
+    // 统一选日期更接近今天的（月历/即将到来是时间线视图，最近的最相关）
+    const dExist = Math.abs(existing.date.getTime() - todayMs);
+    const dNew = Math.abs(item.date.getTime() - todayMs);
+    if (dNew < dExist) seen.set(dk, item);
+  });
+  return Array.from(seen.values());
 }
 
 /* ----------------------------- 渲染：通用 ----------------------------- */
@@ -865,6 +1152,8 @@ function render() {
   if (viewMode === 'timeline') renderTimeline();
   else if (viewMode === 'calendar') renderCalendar();
   else renderList();
+  // 切到列表/时间轴时重置页面滚动位置（避免从月历切回时停留在中间）
+  if (viewMode !== 'calendar') window.scrollTo(0, 0);
   Storage.save(state);
 }
 
@@ -968,10 +1257,10 @@ function reorderCharSubs(fromKey, toKey) {
 
 /* ----------------------------- 视图统一设置条 + 时间轴侧栏 ----------------------------- */
 const SHORT = { version_update: '更新', version_preview: '前瞻',
-  char_tease_0: '一爆料', char_tease_1: '二爆料', char_tease_2: '三爆料', char_tease_3: '四爆料', char_tease_4: '五爆料', char_tease_5: '六爆料',
-  char_banner_0: '角色一卡池', char_banner_1: '角色二卡池', char_banner_2: '角色三卡池', char_banner_3: '角色四卡池', char_banner_4: '角色五卡池', char_banner_5: '角色六卡池',
-  char_preview_0: '一预告', char_preview_1: '二预告', char_preview_2: '三预告', char_preview_3: '四预告', char_preview_4: '五预告', char_preview_5: '六预告',
-  char_pv_0: '一PV', char_pv_1: '二PV', char_pv_2: '三PV', char_pv_3: '四PV', char_pv_4: '五PV', char_pv_5: '六PV' };
+  char_tease_0: '爆料·一', char_tease_1: '爆料·二', char_tease_2: '爆料·三', char_tease_3: '爆料·四', char_tease_4: '爆料·五', char_tease_5: '爆料·六',
+  char_banner_0: '卡池·一', char_banner_1: '卡池·二', char_banner_2: '卡池·三', char_banner_3: '卡池·四', char_banner_4: '卡池·五', char_banner_5: '卡池·六',
+  char_preview_0: '预告·一', char_preview_1: '预告·二', char_preview_2: '预告·三', char_preview_3: '预告·四', char_preview_4: '预告·五', char_preview_5: '预告·六',
+  char_pv_0: 'PV·一', char_pv_1: 'PV·二', char_pv_2: 'PV·三', char_pv_3: 'PV·四', char_pv_4: 'PV·五', char_pv_5: 'PV·六' };
 function evShortKey(ev) { return ev.defKey + (ev.charIndex != null ? '_' + ev.charIndex : (ev.sub != null ? '_' + ev.sub : '')); }
 function fmtCalFocus(dt) { return dt.getFullYear() + '-' + (dt.getMonth() + 1); }
 function shiftCal(d) {
@@ -985,11 +1274,16 @@ function upcomingEvents(limit) {
   all.sort((a, b) => a.date - b.date);
   return all.slice(0, limit || 12);
 }
+/** 根据爆料源版本查找目标版本 tenths（用于即将到来等视图显示备注名） */
+function findTargetTenthsForTease(game, srcTenths, charIndex, offset) {
+  if (!offset || offset <= 0) return null;
+  const versions = listGameVersions(game);
+  const sorted = [...versions].sort((a, b) => a.updateDate.getTime() - b.updateDate.getTime());
+  const idx = sorted.findIndex(v => v.tenths === srcTenths);
+  if (idx < 0 || idx + offset >= sorted.length) return null;
+  return sorted[idx + offset].tenths;
+}
 function timelineSidebarHTML() {
-  let legend = '';
-  activeEvents().forEach(def => def.offsets.forEach((o, idx) => {
-    legend += `<div class="lg-item"><span class="lg-dot" style="background:${eventColor(def.key, def.charIndex != null ? def.charIndex : idx)}"></span>${escapeHtml(def.name + (def.sub ? def.sub[idx] : ''))}<span class="muted">默认 +${o}天</span></div>`;
-  }));
   let up = '';
   const list = upcomingEvents(12);
   if (!list.length) up = '<p class="muted">暂无临近事件</p>';
@@ -997,11 +1291,31 @@ function timelineSidebarHTML() {
     const cd = diffDays(it.date, todayNoon());
     const cdTxt = cd === 0 ? '今天' : (cd > 0 ? cd + ' 天后' : '已过');
     const soon = cd >= 0 && cd <= (state.leadDays || 3);
-    up += `<div class="up-item${soon ? ' soon' : ''}" data-game="${it.game.id}" data-tenths="${it.version.tenths}" data-hk="${it.ev.historyKey}">` +
-      `<div class="up-when">${fmtDate(it.date)}<span class="up-cd">${cdTxt}</span></div>` +
-      `<div class="up-main">${gameIconHTML(it.game, 'chip-ico')}<b>${escapeHtml(it.game.name)}</b> v${it.version.label} · ${escapeHtml(it.ev.title)}</div></div>`;
+    const ev = it.ev;
+    const g = it.game;
+    // 显示名优先级（与时间轴 L1434 一致）：colDisplayNames(列级标签名) > ev.title(版本级自定义标题) > 默认名
+    let displayName = (g.colDisplayNames && g.colDisplayNames[ev.historyKey]) || ev.title || ev.name;
+    let remarkSuffix = '';
+    // 角色备注名作为后缀（不替换主标题，仅追加）
+    if (ev._isChar && g.charNames) {
+      const cn = g.charNames[String(it.version.tenths) + '|' + ev.charIndex];
+      if (cn) remarkSuffix = `（${escapeHtml(cn)}）`;
+    } else if (ev._tease && g.charNames) {
+      const ci = ev.charIndex != null ? ev.charIndex : 0;
+      const offset = g.teaseVersionOffset || 1;
+      const targetTenths = findTargetTenthsForTease(g, it.version.tenths, ci, offset);
+      let cn = null;
+      if (targetTenths != null) cn = g.charNames[String(targetTenths) + '|' + ci];
+      if (!cn) cn = g.charNames[String(it.version.tenths) + '|' + ci];
+      if (cn) remarkSuffix = `（${escapeHtml(cn)}）`;
+    }
+    const sizeCls = getTagSizeClass(ev.defKey, ev.charIndex, g);
+    up += `<div class="up-item${soon ? ' soon' : ''} ${sizeCls}" data-game="${it.game.id}" data-tenths="${it.version.tenths}" data-hk="${it.ev.historyKey}">` +
+      `<div class="up-when">${fmtDate(it.date)}<span class="up-cd" style="color:${cdColor(cd)}">${cdTxt}</span></div>` +
+      `<div class="up-game">${gameIconHTML(it.game, 'chip-ico')}<b>${escapeHtml(it.game.name)}</b> v${it.version.label}</div>` +
+      `<div class="up-ev">${escapeHtml(displayName)}${remarkSuffix}</div></div>`;
   });
-  return `<aside class="tl-side"><div class="tl-card"><div class="tl-card-h">事件图例</div>${legend}</div>` +
+  return `<aside class="tl-side">` +
     `<div class="tl-card"><div class="tl-card-h">即将到来（${state.leadDays || 3}天内高亮）</div>${up}</div></aside>`;
 }
 function renderViewControls() {
@@ -1009,14 +1323,14 @@ function renderViewControls() {
   if (viewMode === 'timeline') {
     bar.innerHTML = `<span class="vc-label">缩放</span>` +
       `<button id="vc-zoom-out" class="vc-btn" title="缩小">－</button>` +
-      `<input type="range" id="vc-zoom" min="2" max="24" value="${state.dayW || 4}">` +
+      `<input type="range" id="vc-zoom" min="2" max="48" value="${state.dayW || 4}">` +
       `<button id="vc-zoom-in" class="vc-btn" title="放大">＋</button>` +
       `<label class="vc-check"><input type="checkbox" id="vc-labels" ${state.showLabels ? 'checked' : ''}> 显示事件标签</label>` +
       `<button id="vc-today" class="vc-btn">跳到今天</button>` +
       `<span class="muted">拖版本块右缘可改时长 · 点事件可编辑</span>`;
     bar.classList.remove('hidden');
     document.getElementById('vc-zoom-out').onclick = () => { state.dayW = Math.max(2, (state.dayW || 4) - 1); saveLocalOnly(); };
-    document.getElementById('vc-zoom-in').onclick = () => { state.dayW = Math.min(24, (state.dayW || 4) + 1); saveLocalOnly(); };
+    document.getElementById('vc-zoom-in').onclick = () => { state.dayW = Math.min(48, (state.dayW || 4) + 1); saveLocalOnly(); };
     document.getElementById('vc-zoom').oninput = (e) => { state.dayW = Number(e.target.value) || 4; Storage.saveLocal(state); renderTimeline(); };
     document.getElementById('vc-labels').onchange = (e) => { state.showLabels = e.target.checked; saveLocalOnly(); };
     document.getElementById('vc-today').onclick = () => {
@@ -1034,7 +1348,8 @@ function renderViewControls() {
     document.getElementById('vc-cal-prev').onclick = () => shiftCal(-1);
     document.getElementById('vc-cal-next').onclick = () => shiftCal(1);
     document.getElementById('vc-cal-today').onclick = () => { state.calFocus = fmtCalFocus(todayNoon()); saveLocalOnly(); };
-    setTimeout(() => { const el = document.getElementById('month-' + f); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30);
+    // 注意：滚动到今天居中由 renderCalendar() 末尾统一处理，这里不再额外 scrollIntoView，
+    // 否则 smooth 滚动会与居中逻辑冲突导致页面自动滑动。
   } else {
     bar.innerHTML = `<span class="vc-label">显示过去</span>` +
       `<input type="number" id="vc-listpast" min="0" max="30" value="${state.listPast || 2}" style="width:56px">` +
@@ -1070,7 +1385,7 @@ function renderTimeline() {
   const vEnd = parseDate(state.viewEnd);
   const totalDays = diffDays(vEnd, vStart);
   const dayW = state.dayW || 4;
-  const laneH = 104;
+  const laneH = 180;
   const labelW = 156;
   const width = totalDays * dayW + labelW;
   const xOf = (dt) => labelW + diffDays(dt, vStart) * dayW;
@@ -1098,24 +1413,151 @@ function renderTimeline() {
   visibleList.forEach(game => {
     const versions = genGameVersions(game).filter(v =>
       v.updateDate.getTime() <= vEnd.getTime() && v.updateDate.getTime() + v.duration * DAY >= vStart.getTime());
-    let blocks = '', marks = '', labels = '';
+    // 预计算：有效的 teaser（目标版本存在即可显示，角色名为空时用默认标签）
+    const validTease = new Set();
+    const allVers = listGameVersions(game).slice().sort((a, b) => a.updateDate.getTime() - b.updateDate.getTime());
+    const tOff = game.teaseVersionOffset || 1;
+    versions.forEach(v => v.events.forEach(ev => {
+      if (!ev._tease) return;
+      const ci = ev.charIndex != null ? ev.charIndex : 0;
+      const idx = allVers.findIndex(x => x.tenths === v.tenths);
+      const targetVer = (idx >= 0 && tOff > 0) ? allVers[idx + tOff] : (tOff <= 0 ? v : null);
+      if (targetVer) validTease.add(v.tenths + '|' + ci);
+    }));
+    let blocks = '', marks = '', labelItems = [];
+    // 预计算版本块位置，确保相邻版本无缝衔接（消除日期间隙）
+    const vPositions = versions.map(v => ({
+      left: xBody(v.updateDate),
+      w: v.duration * dayW,
+      v
+    })).sort((a, b) => a.left - b.left);
+    // 每个版本延伸到下一个版本的起始位置，消除间隙
+    for (let i = 0; i < vPositions.length - 1; i++) {
+      const gap = vPositions[i + 1].left - (vPositions[i].left + vPositions[i].w);
+      if (gap > 0) vPositions[i].w += gap;
+    }
+    // 末尾对齐：所有游戏行的版本块右边缘统一对齐到视图结束日期
+    // 1) 找到最后一个实际可见的版本（left < viewRight），延伸至 viewRight
+    // 2) 对超出 viewRight 的版本做截断，避免行与行之间右边缘参差不齐
+    const viewRight = totalDays * dayW; // 视图内容区右边缘 x 坐标
+    if (vPositions.length > 0) {
+      // 从后往前找第一个 left < viewRight 的可见版本
+      let lastVisible = null;
+      for (let i = vPositions.length - 1; i >= 0; i--) {
+        if (vPositions[i].left < viewRight) { lastVisible = vPositions[i]; break; }
+      }
+      if (lastVisible) {
+        const endX = lastVisible.left + lastVisible.w;
+        if (endX < viewRight) lastVisible.w = viewRight - lastVisible.left;
+      }
+      // 截断所有超出 viewRight 的版本，确保右边缘整齐
+      for (let i = 0; i < vPositions.length; i++) {
+        if (vPositions[i].left + vPositions[i].w > viewRight) {
+          vPositions[i].w = Math.max(viewRight - vPositions[i].left, 0);
+        }
+      }
+    }
+    const vWidthMap = new Map(vPositions.map(vp => [vp.v.tenths, vp.w]));
+    // 时间轴事件渲染：每个版本独立渲染本版本的事件，不再做跨版本去重
+    // （之前的跨版本去重会让 v4.4 的事件被 v4.5 的事件过滤掉，导致每个版本块看不到自己的角色事件）
     versions.forEach(v => {
       const left = xBody(v.updateDate);
-      const w = v.duration * dayW;
+      const w = vWidthMap.get(v.tenths) || (v.duration * dayW); // 使用衔接后的宽度
+      // 允许负偏移事件（如前瞻 -12天）也显示在版本块左侧附近
+      const maxNegOff = 14; // 最大向前延伸天数
       blocks += `<div class="tl-version" data-game="${game.id}" data-tenths="${v.tenths}" style="left:${left}px;width:${w}px;background:linear-gradient(135deg,${game.color},${shade(game.color,-18)})">` +
         `<span class="tl-vname">${escapeHtml(game.name)}</span> <span class="tl-vlabel">v${v.label}</span>` +
         `<div class="resize" data-game="${game.id}" data-tenths="${v.tenths}"></div></div>`;
-      v.events.forEach(ev => {
+      v.events.forEach(rawEv => {
+        if (rawEv.hidden) return; // 跳过隐藏事件
+        let ev = rawEv;
+        // teaser：目标版本不存在 → 跳过
+        if (ev._tease) {
+          const ci = ev.charIndex != null ? ev.charIndex : 0;
+          if (!validTease.has(v.tenths + '|' + ci)) return;
+        }
+        // 按版本渲染：本版本的所有事件都渲染，不做跨版本去重
+        const isCharEv = (ev.defKey === 'char_banner' || ev.defKey === 'char_tease'
+          || ev.defKey === 'char_preview' || ev.defKey === 'char_pv'
+          || ev.defKey === 'banner');
         const mLeft = xBody(ev.date);
-        if (mLeft >= left && mLeft <= left + w) {
-          const tip = escapeHtml(ev.title) + ' ' + fmtDate(ev.date) + ' (+' + ev.offset + '天)';
-          marks += `<div class="tl-event-mark" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}" title="${tip}" style="left:${mLeft}px;background:${eventColor(ev.defKey, ev.charIndex ?? ev.sub)}"></div>`;
+        // 范围检查：版本更新/前瞻等非角色事件按版本块附近范围；
+        // 角色类事件（已通过全局去重，选的是距今天最近的）放宽到整个视图范围，
+        // 因为爆料/预告的日期可能离所属版本块很远（如 v7.1 的爆料日期在 v7.0 附近）
+        const inRange = isCharEv
+          ? (mLeft >= 0 && mLeft <= totalDays * dayW)  // 全视图范围
+          : (mLeft >= left - maxNegOff * dayW && mLeft <= left + w + 2 * dayW);  // 版本块附近
+        if (inRange) {
+          // 查角色备注名
+          let remarkSuffix = ''; let remarkName = '';
+          if (ev._isChar && game.charNames) {
+            const cn = game.charNames[String(v.tenths) + '|' + ev.charIndex];
+            if (cn) { remarkSuffix = `（${escapeHtml(cn)}）`; remarkName = cn; }
+          } else if (ev._tease && game.charNames) {
+            const ci = ev.charIndex != null ? ev.charIndex : 0;
+            const offset = game.teaseVersionOffset || 1;
+            const targetTenths = findTargetTenthsForTease(game, v.tenths, ci, offset);
+            // teaser 只用目标版本的 charNames，不回退到源版本（避免两个 teaser 重复显示同一角色）
+            const cn = targetTenths != null ? game.charNames[String(targetTenths) + '|' + ci] : null;
+            if (cn) { remarkSuffix = `（${escapeHtml(cn)}）`; remarkName = cn; }
+          }
+          // 版本更新/前瞻显示版本号
+          const verLabel = (ev.defKey === 'version_update' || ev.defKey === 'version_preview')
+            ? ' v' + v.label : '';
+          // 事件显示名：colDisplayNames（列级）> eventTitles（版本级）> 默认名
+          const displayName = (game.colDisplayNames && game.colDisplayNames[ev.historyKey]) || ev.title;
+          const tip = escapeHtml(displayName) + verLabel + ' ' + fmtDate(ev.date) + ' (+' + ev.offset + '天)' + remarkSuffix;
+          const tSizeCls = getTagSizeClass(ev.defKey, ev.charIndex, game);
+          marks += `<div class="tl-event-mark" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}"` +
+            ` data-date="${fmtDate(ev.date)}" data-name="${escapeHtml(displayName)}" data-ver="${escapeHtml(v.label)}"` +
+            ` data-offset="${ev.offset}" data-remark="${escapeHtml(remarkName)}" data-gname="${escapeHtml(game.name)}"` +
+            ` data-cycle="${game.baseCycleDays}" data-type="${ev.defKey}" data-source="${ev.source || ''}"` +
+            ` data-charidx="${ev.charIndex ?? ''}" data-ischar="${ev._isChar ? 1 : 0}" data-istease="${ev._tease ? 1 : 0}"` +
+            ` data-tagname="${escapeAttr(game.colDisplayNames && game.colDisplayNames[ev.historyKey] || '')}"` +
+            ` style="left:${mLeft}px;background:${eventColor(ev.defKey, ev.charIndex ?? ev.sub)}"></div>`;
+          // 标签文本优先级：colDisplayNames 自定义名 > SHORT 缩写 > 默认名
+          const finalLabel = (game.colDisplayNames && game.colDisplayNames[ev.historyKey])
+            ? displayName
+            : (SHORT[evShortKey(ev)] || displayName);
           if (state.showLabels) {
-            labels += `<div class="tl-evt-tag" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}" title="${tip}" style="left:${mLeft}px;--c:${eventColor(ev.defKey, ev.charIndex ?? ev.sub)}">${SHORT[evShortKey(ev)] || escapeHtml(ev.name)}</div>`;
+            labelItems.push({
+              left: mLeft,
+              defKey: ev.defKey,
+              charIndex: ev.charIndex ?? 0,
+              html: `<div class="tl-evt-tag ${tSizeCls}" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}" data-date="${fmtDate(ev.date)}" style="left:${mLeft}px;--c:${eventColor(ev.defKey, ev.charIndex ?? ev.sub)}">${escapeHtml(finalLabel)}${verLabel}${remarkSuffix}</div>`
+            });
           }
         }
       });
     });
+    // 标签位置：默认紧贴轴体；多数类型在下方(y=118)，PV/预告在上方(y=46)
+    // 只有确实水平重叠时才向该侧顺次错位——不按类型固定行
+    const TL_BASE_BOT = 118;     // 轴体下方基准
+    const TL_BASE_TOP = 46;      // 轴体上方基准（PV/预告）
+    const TL_ROW_H = 18;         // 每行高度
+    const TL_OVERLAP_PX = 60;    // 水平距离 < 此值视为重叠
+    function tlIsTop(defKey, ci) {
+      if (defKey === 'char_pv' || defKey === 'char_preview') return true;
+      if (defKey === 'char_tease' && ci === 1) return true; // 爆料·角色二在上
+      return false;
+    }
+    if (labelItems.length > 0) {
+      labelItems.sort((a, b) => a.left - b.left);
+      const placed = [];         // 已放置的 { left, top }
+      labelItems.forEach(item => {
+        const up = tlIsTop(item.defKey, item.charIndex);
+        let top = up ? TL_BASE_TOP : TL_BASE_BOT;
+        // 与已放置标签逐个检测碰撞，碰撞则向当前侧错一行
+        for (;;) {
+          const hit = placed.some(p => Math.abs(p.left - item.left) < TL_OVERLAP_PX && p.top === top);
+          if (!hit) break;
+          top += up ? -TL_ROW_H : TL_ROW_H;
+        }
+        placed.push({ left: item.left, top });
+        item.html = item.html.replace(' style="left:', ' style="top:' + top + 'px;left:');
+      });
+    }
+    const labels = labelItems.map(it => it.html).join('');
     lanes += `<div class="tl-lane" style="height:${laneH}px">` +
       `<div class="tl-lane-label" style="width:${labelW}px">${gameIconHTML(game, 'icon')}<span>${escapeHtml(game.name)}</span></div>` +
       `<div class="tl-lane-body" style="height:${laneH}px">${blocks}${marks}${labels}</div></div>`;
@@ -1134,14 +1576,326 @@ function bindTimelineEvents() {
   host.querySelectorAll('.tl-version').forEach(el => {
     el.addEventListener('click', (e) => {
       if (e.target.classList.contains('resize')) return;
+      // 点版本块空白区：打开原版编辑弹窗（事件竖线/标签由下方的 handler 处理）
+      if (e.target.closest('.tl-event-mark, .tl-evt-tag')) return;
       openVersionModal(el.dataset.game, Number(el.dataset.tenths));
     });
   });
+  // 悬停事件标记：同日所有事件标签等比放大 + 显示详情浮层
+  const tlInner = host.querySelector('.timeline-inner');
+  let tlCard = null;
+  const TL_WK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  const TL_SRC = {
+    confirmed: ['✓ 官方日期（已确认）', 'thc-src-confirmed'],
+    inherited: ['↻ 计算所得（自动沿用）', 'thc-src-inherited'],
+    base: ['⚙ 基准推算', 'thc-src-base'],
+    default: ['○ 未设置（无参考数据）', 'thc-src-default']
+  };
+  function buildEventCard(marksSame, opts) {
+    const editMode = !!(opts && opts.edit);
+    const blocks = Array.from(marksSame).map(m => {
+      const date = new Date(m.dataset.date + 'T12:00:00');
+      const days = diffDays(date, todayNoon());
+      const dAbs = Math.abs(days);
+      const dayTxt = days === 0 ? '今天' : (days > 0 ? '还有 ' + dAbs + ' 天' : dAbs + ' 天前');
+      const dayCls = days >= 0 ? 'thc-day-future' : 'thc-day-past';
+      const off = Number(m.dataset.offset);
+      const offTxt = (off > 0 ? '+' : '') + off + ' 天';
+      const src = TL_SRC[m.dataset.source] || TL_SRC.default;
+      const dot = m.style.background;
+      const remark = m.dataset.remark
+        ? `<div class="thc-row"><span class="thc-k">备注</span><span class="thc-v" style="color:#7c3aed">${m.dataset.remark}</span></div>` : '';
+      // 编辑模式下：标题、日期、备注变输入框；自定义名称与外面的标签名都可改
+      const hk = m.dataset.hk;
+      const gameId = m.dataset.game;
+      const tenths = m.dataset.tenths;
+      const charIdx = (m.dataset.charIdx != null && m.dataset.charIdx !== '') ? Number(m.dataset.charIdx) : null;
+      const mkey = escapeAttr(gameId + '|' + tenths + '|' + hk);
+      let nameHtml, dateHtml, remarkHtml;
+      if (editMode) {
+        nameHtml = `<input type="text" class="thc-inp thc-inp-name" data-field="title" data-key="${mkey}" value="${escapeAttr(m.dataset.name)}" placeholder="自定义名称">`;
+        dateHtml = `<input type="date" class="thc-inp thc-inp-date" data-field="date" data-key="${mkey}" data-hk="${escapeAttr(hk)}" data-game="${escapeAttr(gameId)}" data-tenths="${escapeAttr(tenths)}" data-charidx="${charIdx ?? ''}" value="${escapeAttr(m.dataset.date)}" onchange="this.setAttribute('data-dirty','1')">`;
+        // 备注：仅 _isChar/_tease 事件才有 charNames
+        const remarkInput = (m.dataset.ischar === '1' || m.dataset.istease === '1')
+          ? `<input type="text" class="thc-inp thc-inp-remark" data-field="remark" data-game="${escapeAttr(gameId)}" data-tenths="${escapeAttr(tenths)}" data-charidx="${charIdx ?? ''}" value="${escapeAttr(m.dataset.remark || '')}" placeholder="角色备注">`
+          : `<span class="thc-v muted">—</span>`;
+        remarkHtml = `<div class="thc-row"><span class="thc-k">备注</span>${remarkInput}</div>`;
+      } else {
+        nameHtml = `${m.dataset.name}<span class="thc-pill">v${m.dataset.ver}</span>`;
+        dateHtml = `<span class="thc-v">${m.dataset.date} ${TL_WK[date.getDay()]}</span>`;
+        remarkHtml = remark;
+      }
+      // 标签名输入（仅编辑态显示在头部下方）
+      const tagNameKey = gameId + '|' + hk;
+      const tagNameSection = editMode
+        ? `<div class="thc-row"><span class="thc-k">标签名</span><input type="text" class="thc-inp thc-inp-tagname" data-field="tagname" data-game="${escapeAttr(gameId)}" data-hk="${escapeAttr(hk)}" value="${escapeAttr(m.dataset.tagname || '')}" placeholder="留空用默认名"></div>`
+        : '';
+      return `<div class="thc-block" data-mkey="${mkey}">` +
+        `<div class="thc-title"><span class="thc-dot" style="background:${dot}"></span>${nameHtml}</div>` +
+        tagNameSection +
+        `<div class="thc-row"><span class="thc-k">日期</span>${dateHtml}</div>` +
+        `<div class="thc-row"><span class="thc-k">距今</span><span class="thc-v ${dayCls}">${dayTxt}</span></div>` +
+        `<div class="thc-row"><span class="thc-k">相对版本</span><span class="thc-v">${offTxt}</span></div>` +
+        `<div class="thc-row"><span class="thc-k">数据来源</span><span class="thc-v"><span class="thc-pill ${src[1]}">${src[0]}</span></span></div>` +
+        (editMode ? remarkHtml : remark) +
+        `</div>`;
+    }).join('<div class="thc-sep"></div>');
+    const first = marksSame[0];
+    const sub = `<div class="thc-sub">${first.dataset.gname} · v${first.dataset.ver} · 周期 ${first.dataset.cycle} 天` +
+      (marksSame.length > 1 ? ` · 同日 ${marksSame.length} 个事件` : '') + `</div>`;
+    // 底部按钮区（编辑态显示保存/取消，只读态显示关闭+编辑）
+    const actions = editMode
+      ? `<div class="thc-actions"><button class="thc-btn" data-act="cancel">取消</button><button class="thc-btn primary" data-act="save">保存</button></div>`
+      : `<div class="thc-actions"><button class="thc-btn" data-act="close">关闭</button><button class="thc-btn primary" data-act="edit">✏️ 编辑</button></div>`;
+    return blocks + sub + actions;
+  }
   host.querySelectorAll('.tl-event-mark').forEach(el => {
-    el.addEventListener('click', (e) => { e.stopPropagation(); openVersionModal(el.dataset.game, Number(el.dataset.tenths), el.dataset.hk); });
+    el.addEventListener('mouseenter', () => {
+      // 已固定（或正在编辑）的卡片不再被 hover 覆盖，避免鼠标移动打断编辑
+      if (tlCard && tlCard.classList.contains('tl-pinned')) return;
+      const date = el.dataset.date;
+      // 只在同一个游戏行（lane-body）内查找同日标记和标签，不跨游戏合并
+      const laneBody = el.closest('.tl-lane-body');
+      const sameMarks = (laneBody || host).querySelectorAll('.tl-event-mark[data-date="' + date + '"]');
+      const sameTags = (laneBody || host).querySelectorAll('.tl-evt-tag[data-date="' + date + '"]');
+      sameMarks.forEach(m => m.classList.add('hl'));
+      sameTags.forEach(t => t.classList.add('hl'));
+      if (!tlCard) { tlCard = document.createElement('div'); tlCard.className = 'tl-hover-card'; tlInner.appendChild(tlCard); bindCardActions(tlCard); }
+      // 也记录上下文（hover 后直接点编辑也能工作）
+      tlCard.dataset.ctx = JSON.stringify({ game: el.dataset.game, tenths: el.dataset.tenths, hk: el.dataset.hk, date: date });
+      tlCard.innerHTML = buildEventCard(sameMarks);
+      // 定位：默认右侧弹出，水平/垂直都自适应避开可见边界遮挡
+      const ir = tlInner.getBoundingClientRect();
+      const lr = (laneBody || el.parentElement).getBoundingClientRect();
+      const mr = el.getBoundingClientRect();
+      const laneOffsetTop = lr.top - ir.top;
+      const laneOffsetLeft = lr.left - ir.left;
+      const markTop = mr.top - lr.top;
+      const markLeft = mr.left - lr.left;
+      const laneH = lr.height;
+      const cardW = tlCard.offsetWidth || 240;
+      const cardH = tlCard.offsetHeight || 180;
+      // tlInner 可见边界（viewport 坐标），自然处理被右侧栏遮挡的情况
+      const visLeftVp = ir.left + 4;
+      const visRightVp = ir.right - 4;
+      const visTopVp = ir.top + 4;
+      const visBottomVp = ir.bottom - 4;
+      // 默认右侧弹出
+      let localLeft = markLeft + mr.width + 14;
+      let dirCls = 'thc-right';
+      // 检查右侧是否被可见边界遮挡（卡片右边缘超出 tlInner 可见右边缘）
+      const cardRightVpRight = ir.left + laneOffsetLeft + localLeft + cardW;
+      if (cardRightVpRight > visRightVp) {
+        // 翻到左侧
+        localLeft = markLeft - cardW - 14;
+        dirCls = 'thc-left';
+      }
+      // 转换到 tlInner 坐标系
+      let left = laneOffsetLeft + localLeft;
+      // 水平最终安全边界：以 tlInner 可见范围为准
+      const cardLeftVp = ir.left + left;
+      const cardRightVp = cardLeftVp + cardW;
+      if (cardRightVp > visRightVp) left -= (cardRightVp - visRightVp);
+      if (cardLeftVp < visLeftVp) left += (visLeftVp - cardLeftVp);
+      left = Math.max(4, left);
+      // 垂直居中对齐标记
+      let top = laneOffsetTop + markTop + mr.height / 2 - cardH / 2;
+      // 垂直安全边界：以 tlInner 可见范围为准（避免卡片被视口剪裁）
+      const cardTopVp = ir.top + top;
+      const cardBottomVp = cardTopVp + cardH;
+      if (cardBottomVp > visBottomVp) top -= (cardBottomVp - visBottomVp);
+      if (cardTopVp < visTopVp) top += (visTopVp - cardTopVp);
+      // 箭头 Y = 标记中心在卡片内的相对位置（夹在卡片内）
+      const arrowYRaw = (markTop + mr.height / 2) - (top - laneOffsetTop);
+      const arrowY = Math.max(14, Math.min(cardH - 14, arrowYRaw));
+      tlCard.style.setProperty('--arrow-y', arrowY + 'px');
+      // 保留 tl-pinned 状态（防止 hover 移动时覆盖掉固定标记）
+      const wasPinned = tlCard.classList.contains('tl-pinned');
+      tlCard.className = 'tl-hover-card show ' + dirCls + (wasPinned ? ' tl-pinned' : '');
+      tlCard.style.top = top + 'px';
+      tlCard.style.left = left + 'px';
+    });
+    el.addEventListener('mouseleave', () => {
+      // 若卡片已固定，不收起
+      if (tlCard && tlCard.classList.contains('tl-pinned')) return;
+      host.querySelectorAll('.tl-event-mark.hl').forEach(m => m.classList.remove('hl'));
+      host.querySelectorAll('.tl-evt-tag.hl').forEach(t => t.classList.remove('hl'));
+      if (tlCard) tlCard.classList.remove('show');
+    });
+    // 点击事件竖线：固定浮窗（替换原 openVersionModal）
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const date = el.dataset.date;
+      const laneBody = el.closest('.tl-lane-body');
+      const sameMarks = (laneBody || host).querySelectorAll('.tl-event-mark[data-date="' + date + '"]');
+      sameMarks.forEach(m => m.classList.add('hl'));
+      if (!tlCard) { tlCard = document.createElement('div'); tlCard.className = 'tl-hover-card'; tlInner.appendChild(tlCard); bindCardActions(tlCard); }
+      // 把上下文存到卡片本身，编辑/退出时直接读取（不依赖 .hl 类，避免交互中丢失）
+      tlCard.dataset.ctx = JSON.stringify({ game: el.dataset.game, tenths: el.dataset.tenths, hk: el.dataset.hk, date: date });
+      tlCard.innerHTML = buildEventCard(sameMarks);
+      positionTlCard(tlInner, tlCard, sameMarks[0]);
+      tlCard.classList.add('tl-pinned', 'show');
+      tlCard.classList.remove('thc-edit');
+    });
   });
+  // 卡片底部按钮：关闭 / 编辑 / 保存 / 取消（每次创建卡片时绑定）
+  function bindCardActions(card) {
+    card.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-act]');
+      if (!btn) return;
+      e.stopPropagation();
+      try {
+        const act = btn.dataset.act;
+        if (act === 'close') { unpinHoverCard(host, card); }
+        else if (act === 'edit') { enterEditMode(host, tlInner, card); }
+        else if (act === 'cancel') { exitEditMode(host, tlInner, card); }
+        else if (act === 'save') { saveEditChanges(host, tlInner, card); }
+      } catch (err) {
+        console.error('[GVS] 卡片操作出错', err);
+        toast('操作出错：' + err.message);
+      }
+    });
+  }
+  if (tlCard) bindCardActions(tlCard);
+  // 点击外部关闭固定浮窗
+  document.addEventListener('click', function outsideClose(e) {
+    if (!tlCard || !tlCard.classList.contains('tl-pinned')) return;
+    if (tlCard.contains(e.target)) return;
+    if (e.target.closest('.tl-event-mark, .tl-evt-tag')) return;
+    unpinHoverCard(host, tlCard);
+  });
+
+  function positionTlCard(tlInner, tlCard, el) {
+    if (!el || !el.getBoundingClientRect) return;
+    const ir = tlInner.getBoundingClientRect();
+    const laneBody = el.closest('.tl-lane-body');
+    const lr = (laneBody || el.parentElement).getBoundingClientRect();
+    const mr = el.getBoundingClientRect();
+    const laneOffsetTop = lr.top - ir.top, laneOffsetLeft = lr.left - ir.left;
+    const markTop = mr.top - lr.top, markLeft = mr.left - lr.left;
+    const laneH = lr.height;
+    const cardW = tlCard.offsetWidth || 240;
+    const cardH = tlCard.offsetHeight || 180;
+    const visLeftVp = ir.left + 4, visRightVp = ir.right - 4, visTopVp = ir.top + 4, visBottomVp = ir.bottom - 4;
+    let localLeft = markLeft + mr.width + 14, dirCls = 'thc-right';
+    if (ir.left + laneOffsetLeft + localLeft + cardW > visRightVp) { localLeft = markLeft - cardW - 14; dirCls = 'thc-left'; }
+    let left = laneOffsetLeft + localLeft;
+    const cardLeftVp = ir.left + left, cardRightVp = cardLeftVp + cardW;
+    if (cardRightVp > visRightVp) left -= (cardRightVp - visRightVp);
+    if (cardLeftVp < visLeftVp) left += (visLeftVp - cardLeftVp);
+    left = Math.max(4, left);
+    let top = laneOffsetTop + markTop + mr.height / 2 - cardH / 2;
+    const cardTopVp = ir.top + top, cardBottomVp = cardTopVp + cardH;
+    if (cardBottomVp > visBottomVp) top -= (cardBottomVp - visBottomVp);
+    if (cardTopVp < visTopVp) top += (visTopVp - cardTopVp);
+    const arrowYRaw = (markTop + mr.height / 2) - (top - laneOffsetTop);
+    const arrowY = Math.max(14, Math.min(cardH - 14, arrowYRaw));
+    tlCard.style.setProperty('--arrow-y', arrowY + 'px');
+    tlCard.classList.add(dirCls);
+    tlCard.style.top = top + 'px';
+    tlCard.style.left = left + 'px';
+  }
+
+  function unpinHoverCard(host, tlCard) {
+    host.querySelectorAll('.tl-event-mark.hl').forEach(m => m.classList.remove('hl'));
+    host.querySelectorAll('.tl-evt-tag.hl').forEach(t => t.classList.remove('hl'));
+    tlCard.classList.remove('tl-pinned', 'show', 'thc-edit');
+  }
+
+  function findCtxMarks(host, tlCard) {
+    let ctx = null;
+    try { ctx = tlCard.dataset.ctx ? JSON.parse(tlCard.dataset.ctx) : null; } catch (err) { ctx = null; }
+    if (!ctx || !ctx.date) return null;
+    // 优先在同一游戏行（lane-body）内查找，避免跨游戏合并
+    const laneBody = host.querySelector(`.tl-event-mark[data-game="${ctx.game}"][data-tenths="${ctx.tenths}"][data-hk="${ctx.hk}"]`)?.closest('.tl-lane-body');
+    return (laneBody || host).querySelectorAll(`.tl-event-mark[data-date="${ctx.date}"]`);
+  }
+
+  function enterEditMode(host, tlInner, tlCard) {
+    const sameMarks = findCtxMarks(host, tlCard);
+    if (!sameMarks || !sameMarks.length) return;
+    tlCard.innerHTML = buildEventCard(sameMarks, { edit: true });
+    positionTlCard(tlInner, tlCard, sameMarks[0]);
+    tlCard.classList.add('thc-edit');
+  }
+
+  function exitEditMode(host, tlInner, tlCard) {
+    const sameMarks = findCtxMarks(host, tlCard);
+    if (!sameMarks || !sameMarks.length) return;
+    tlCard.innerHTML = buildEventCard(sameMarks);
+    tlCard.classList.remove('thc-edit');
+    positionTlCard(tlInner, tlCard, sameMarks[0]);
+  }
+
+  function saveEditChanges(host, tlInner, tlCard) {
+    const inputs = tlCard.querySelectorAll('.thc-inp');
+    let anyChange = false;
+    inputs.forEach(inp => {
+      const field = inp.dataset.field;
+      const gameId = inp.dataset.game;
+      const hk = inp.dataset.hk;
+      const tenths = inp.dataset.tenths;
+      const charIdxRaw = inp.dataset.charidx;
+      const game = state.games.find(g => g.id === gameId);
+      if (!game) return;
+      const val = inp.value.trim();
+      if (field === 'title') {
+        // 自定义名称（per-version）→ eventTitles
+        if (!game.eventTitles) game.eventTitles = {};
+        const tkey = tenths + '|' + hk;
+        if (val) { game.eventTitles[tkey] = val; anyChange = true; }
+        else { delete game.eventTitles[tkey]; anyChange = true; }
+      } else if (field === 'tagname') {
+        // 列级标签名 → colDisplayNames
+        if (!game.colDisplayNames) game.colDisplayNames = {};
+        if (val) { game.colDisplayNames[hk] = val; anyChange = true; }
+        else { delete game.colDisplayNames[hk]; anyChange = true; }
+      } else if (field === 'remark') {
+        // 角色备注 → charNames
+        if (!game.charNames) game.charNames = {};
+        const cidx = charIdxRaw !== '' && charIdxRaw != null ? Number(charIdxRaw) : 0;
+        const rkey = tenths + '|' + cidx;
+        if (val) { game.charNames[rkey] = val; anyChange = true; }
+        else { delete game.charNames[rkey]; anyChange = true; }
+      } else if (field === 'date') {
+        // 日期 → verEventOffsets（version_update 走 verUpdateDates）
+        // ⚠️ 只有用户实际改过该日期输入框才处理，避免把卡片里未编辑的绑定/继承自事件误升级为「已确认」而被后续偏移调整卡死
+        if (inp.dataset.dirty !== '1') return;
+        if (hk === 'version_update') {
+          if (!game.verUpdateDates) game.verUpdateDates = {};
+          if (val) { game.verUpdateDates[String(tenths)] = val; anyChange = true; }
+          else { delete game.verUpdateDates[String(tenths)]; anyChange = true; }
+        } else {
+          if (!game.verEventOffsets) game.verEventOffsets = {};
+          if (val) {
+            const newDate = parseDate(val);
+            const v = genGameVersions(game).find(x => String(x.tenths) === String(tenths));
+            const upd = v ? v.updateDate : null;
+            const off = upd ? diffDays(newDate, upd) : 0;
+            game.verEventOffsets[tenths + '|' + hk] = off;
+            anyChange = true;
+          } else {
+            delete game.verEventOffsets[tenths + '|' + hk];
+            anyChange = true;
+          }
+        }
+      }
+    });
+    if (anyChange) {
+      saveAndRender();
+      toast('已保存，修改已同步到所有视图');
+    } else {
+      exitEditMode(host, tlInner, tlCard);
+    }
+  }
+
   host.querySelectorAll('.tl-evt-tag').forEach(el => {
-    el.addEventListener('click', (e) => { e.stopPropagation(); openVersionModal(el.dataset.game, Number(el.dataset.tenths), el.dataset.hk); });
+    // 点击标签同样触发固定浮窗（而非弹窗）
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const m = el.closest('.tl-lane-body')?.querySelector(`.tl-event-mark[data-hk="${el.dataset.hk}"][data-tenths="${el.dataset.tenths}"]`);
+      if (m) m.dispatchEvent(new MouseEvent('click', { bubbles: false }));
+    });
   });
   host.querySelectorAll('.resize').forEach(el => {
     el.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); startResize(el.dataset.game, Number(el.dataset.tenths), e); });
@@ -1175,14 +1929,14 @@ function startResize(gameId, tenths, e) {
 
 /* ----------------------------- 列表视图（自动计算的后继版本日程） ----------------------------- */
 /** 生成列表视图中单个事件单元格的 HTML */
-function listEvCellHTML(game, v, ev, editMode) {
+function listEvCellHTML(game, v, ev, editMode, identityColors) {
   const cd = (ev.date && !ev.noRef) ? diffDays(ev.date, todayNoon()) : null;
   const cdTxt = cd === null ? '' : (cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd)));
-  const soonCls = (ev.date && !ev.noRef && cd >= 0 && cd <= (state.leadDays || 3)) ? 'soon' : '';
   // 开关开启且无任何你填过的参考数据：列表视图留空（不显示基准/默认推算日期）
   const dateHtml = ev.noRef
     ? '<span class="muted">— 未填</span>'
-    : `${fmtDate(ev.date)}<span class="muted" style="font-size:11px;margin-left:4px">${cdTxt}</span>`;
+    : `<span style="font-size:13px;font-weight:600;color:#334155">${fmtDate(ev.date)}</span>` +
+      `<span style="font-size:11px;font-weight:400;margin-left:4px;color:${cdColor(cd)}">${cdTxt}</span>`;
   // 仅动态生成的角色事件（带 charIndex）才显示角色名标签，char_tease 等静态事件不算
   const isDynamicChar = ev.charIndex != null;
   // 角色事件：优先从 charNames（本版本该角色通用）取角色名；普通事件：用 eventTitles
@@ -1193,8 +1947,13 @@ function listEvCellHTML(game, v, ev, editMode) {
     // charNames 优先 → 其次 eventTitles（per-cell 覆盖）→ 都没有则不显示标签
     const displayName = charName || ((ev.title !== ev.name) ? ev.title : '');
     if (displayName) {
-      const tagColor = eventColor(ev.defKey, ci);
-      customHtml = `<div class="ev-char-tag" style="background:${tagColor}18;color:${tagColor};border:1px solid ${tagColor}44">${escapeHtml(displayName)}</div>`;
+      const tc = tagColorFor(displayName, identityColors);
+      if (tc) {
+        customHtml = `<div class="ev-char-tag" style="background:${tc.bg};color:${tc.fg};border:1px solid ${tc.fg}55;font-weight:700">${escapeHtml(displayName)}</div>`;
+      } else {
+        const tagColor = eventColor(ev.defKey, ci);
+        customHtml = `<div class="ev-char-tag" style="background:${tagColor}1a;color:${tagColor};border:1px solid ${tagColor}55;font-weight:700">${escapeHtml(displayName)}</div>`;
+      }
     }
   } else if (ev.title !== ev.name) {
     customHtml = `<div class="ev-custom">${escapeHtml(ev.title)}</div>`;
@@ -1211,20 +1970,20 @@ function listEvCellHTML(game, v, ev, editMode) {
   }
 
   if (!editMode) {
-    return `<td class="${soonCls}" title="${escapeHtml(ev.title)}">` +
-      `<div class="le-cell-date">${dateHtml}</div>` +
-      `<div class="le-cell-meta">${offsetSrcDot(ev.source)}${customHtml}</div></td>`;
+    return `<td title="${escapeHtml(ev.title)}">` +
+      `<div class="le-cell-date">${dateHtml}${offsetSrcDot(ev.source)}</div>` +
+      `${customHtml ? '<div class="le-cell-tag">' + customHtml + '</div>' : ''}</td>`;
   }
   // 编辑模式：可点击编辑
-  return `<td class="le-editable ${soonCls}" data-game="${game.id}" data-tenths="${v.tenths}"` +
+  return `<td class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}"` +
     ` data-hk="${ev.historyKey}" data-ev-name="${escapeAttr(ev.name)}" title="点击编辑：${escapeHtml(ev.title)}">` +
-    `<div class="le-cell-date">${dateHtml}</div>` +
-    `<div class="le-cell-meta">${offsetSrcDot(ev.source)}${customHtml}</div>` +
+    `<div class="le-cell-date">${dateHtml}${offsetSrcDot(ev.source)}</div>` +
+    `${customHtml ? '<div class="le-cell-tag">' + customHtml + '</div>' : ''}` +
     `<span class="le-edit-hint">✏️</span></td>`;
 }
 
 /** 新角色爆料列单元格：显示绑定目标版本的角色备注名 + 爆料事件日期（可点击编辑） */
-function teaseCellHTML(def, remark, editMode, game, v, targetVer, teaseDate, verHidden, teaseSource) {
+function teaseCellHTML(def, remark, editMode, game, v, targetVer, teaseDate, verHidden, teaseSource, identityColors) {
   const ci = def.charIndex != null ? def.charIndex : 0;
   const color = eventColor('char_tease', ci);
   const hidden = verHidden || !!def._hidden;
@@ -1241,29 +2000,40 @@ function teaseCellHTML(def, remark, editMode, game, v, targetVer, teaseDate, ver
       `<span class="le-add-hint">＋ 恢复</span></td>`;
   }
   // 有备注名显示标签，无备注名不渲染占位符（避免多余 span 产生横线）
-  const tag = remark
-    ? `<div class="ev-char-tag" style="background:${color}18;color:${color};border:1px solid ${color}44">${escapeHtml(remark)}</div>`
-    : '';
+  const tc = tagColorFor(remark, identityColors);
+  const tag = (remark && tc)
+    ? `<div class="ev-char-tag" style="background:${tc.bg};color:${tc.fg};border:1px solid ${tc.fg}55;font-weight:700">${escapeHtml(remark)}</div>`
+    : (remark ? `<div class="ev-char-tag" style="background:${color}1a;color:${color};border:1px solid ${color}55;font-weight:700">${escapeHtml(remark)}</div>` : '');
   // 日期倒计时（与 listEvCellHTML 算法一致）
   const cd = teaseDate ? diffDays(teaseDate, todayNoon()) : null;
   const cdTxt = cd === null ? '' : (cd === 0 ? '今天' : (cd > 0 ? '+' + cd : String(cd)));
   // 日期行（日期+倒计时内联）+ 元数据行（圆点+标签并排）
   const dateLine = teaseDate
-    ? `${fmtDate(teaseDate)}<span class="muted" style="font-size:11px;margin-left:4px">${cdTxt}</span>`
+    ? `<span style="font-size:13px;font-weight:600;color:#334155">${fmtDate(teaseDate)}</span><span style="font-size:11px;font-weight:400;margin-left:4px;color:${cdColor(cd)}">${cdTxt}</span>`
     : '—';
   // 爆料列可点击编辑：修改目标版本的角色备注名 + 爆料事件日期
   if (!editMode) {
     return `<td title="新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」">` +
-      `<div class="le-cell-date">${dateLine}</div>` +
-      `<div class="le-cell-meta">${offsetSrcDot(teaseSource)}${tag}</div></td>`;
+      `<div class="le-cell-date">${dateLine}${offsetSrcDot(teaseSource)}</div>` +
+      `${tag ? '<div class="le-cell-tag">' + tag + '</div>' : ''}</td>`;
   }
   return `<td class="le-editable" style="border:1px solid var(--border);border-bottom:0!important;outline:0!important;box-shadow:none!important" data-game="${game.id}" data-tenths="${v.tenths}"` +
     ` data-cell-type="tease" data-char-index="${ci}"` +
     (targetVer ? ` data-target-tenths="${targetVer.tenths}"` : '') +
     ` title="点击编辑：新角色爆料·角色${ci + 1} → 绑定到「${escapeAttr(targetLabel)}」的备注名与日期">` +
-      `<div class="le-cell-date">${dateLine}</div>` +
-      `<div class="le-cell-meta">${offsetSrcDot(teaseSource)}${tag}</div>` +
+      `<div class="le-cell-date">${dateLine}${offsetSrcDot(teaseSource)}</div>` +
+      `${tag ? '<div class="le-cell-tag">' + tag + '</div>' : ''}` +
     `<span class="le-edit-hint">✏️</span></td>`;
+}
+
+/** 获取列表视图用的宽范围版本列表（与 renderList 的范围一致，避免时间轴窄范围导致查不到） */
+function listGameVersions(game) {
+  const lp = state.listPast || 2, lc = state.listCount || 8;
+  const estCycle = (game.baseCycleDays || 42) * 2;
+  return genGameVersions(game,
+    fmtDate(addDays(todayNoon(), -(lp * estCycle))),
+    fmtDate(addDays(todayNoon(), +(lc * estCycle)))
+  );
 }
 
 function renderList() {
@@ -1279,6 +2049,8 @@ function renderList() {
     : '';
 
   list.forEach(game => {
+    // 角色身份 → 颜色序号（同名共享），用于备注标签按角色分配颜色
+    const identityColors = buildIdentityColors(game);
     // 列表视图使用独立范围，不受"视图起始/结束"限制
     const lp = state.listPast || 2, lc = state.listCount || 8;
     const estCycle = (game.baseCycleDays || 42) * 2;
@@ -1334,15 +2106,15 @@ function renderList() {
     let groups = [];
     normalCols.forEach(c => {
       const col = mkCol(c, 'normal');
-      groups.push({ id: 'norm__' + col.colId, type: 'normal', singleton: true, label: c.def.name, color: eventColor(c.def._origKey || c.def.key, c.idx), cols: [col] });
+      groups.push({ id: 'norm__' + col.colId, type: 'normal', singleton: true, label: c.def.name, color: headerColorFor(c.def._origKey || c.def.key, 'normal', c.idx), cols: [col] });
     });
     teaseGroupDefs.forEach(g => {
       const cols = g.cols.map(c => mkCol(c, 'tease', c.def.charIndex != null ? c.def.charIndex : c.idx));
-      groups.push({ id: 'tease', type: 'tease', singleton: false, label: '新角色爆料', color: eventColor('char_tease', 0), cols });
+      groups.push({ id: 'tease', type: 'tease', singleton: false, label: '新角色爆料', color: GROUP_HEADER_COLORS.tease, cols });
     });
     charGroupDefs.forEach(g => {
       const cols = g.cols.map(c => mkCol(c, 'char', g.ci));
-      groups.push({ id: 'char__' + g.ci, type: 'char', singleton: false, label: g.label, color: eventColor(g.cols[0].def._origKey || g.cols[0].def.key, g.ci), charIndex: g.ci, cols });
+      groups.push({ id: 'char__' + g.ci, type: 'char', singleton: false, label: g.label, color: headerColorFor(g.cols[0].def._origKey || g.cols[0].def.key, 'char', g.ci), charIndex: g.ci, cols });
     });
 
     // 应用已保存的组顺序（第一行）与组内子顺序（第二行）
@@ -1391,31 +2163,39 @@ function renderList() {
             ? (game.charNames[String(rowTarget.tenths) + '|' + ci] || '') : '';
           let teaseDate = null;
           let teaseEv = null;
-          if (rowTarget) {
-            teaseEv = rowTarget.events.find(e => e.historyKey === ('char_tease_' + ci));
-            teaseDate = teaseEv ? teaseEv.date : addDays(rowTarget.updateDate, TEASE_OFF);
-          }
+          // teaser 日期：从 row（src）版本的同名 teaser 事件读——与 makeVersion / 弹窗存值用同一 key
+          const rowTeaseEv = v.events.find(e => e.historyKey === ('char_tease_' + ci) && !e.hidden);
+          teaseDate = rowTeaseEv ? rowTeaseEv.date : (rowTarget ? addDays(rowTarget.updateDate, TEASE_OFF) : null);
+          teaseEv = rowTeaseEv;
           const teaseHk = 'char_tease_' + ci;
           const verHidden = !!(game.verHiddenEvents && game.verHiddenEvents[String(v.tenths) + '|' + teaseHk]);
-          cell = teaseCellHTML(col.def, remark, editMode, game, v, rowTarget, teaseDate, verHidden, teaseEv ? teaseEv.source : null);
+          cell = teaseCellHTML(col.def, remark, editMode, game, v, rowTarget, teaseDate, verHidden, teaseEv ? teaseEv.source : null, identityColors);
         } else {
           const ev = lookupEv(col.def, col.idx);
           if (ev) {
-            cell = listEvCellHTML(game, v, ev, editMode);
+            cell = listEvCellHTML(game, v, ev, editMode, identityColors);
           } else if (!editMode) {
             cell = '<td></td>';
           } else {
             // 编辑模式：没有数据的格子也显示可点击占位符（ax fix）
             const origKey = col.def._origKey || col.def.key;
-            const cellText = col.def.sub ? col.def.sub[col.idx] : col.def.name;
+            let cellText;
+            if (col.def.sub) {
+              cellText = col.type === 'char' ? col.def.name : (col.def.name + col.def.sub[col.idx]);
+            } else {
+              cellText = col.def.name;
+              if (col.type === 'tease') cellText = cellText.replace(/^新角色爆料·/, '');
+            }
             cell = `<td class="le-editable vt-empty" data-game="${game.id}" data-tenths="${v.tenths}"` +
               ` data-hk="${escapeAttr(origKey + (col.def.charIndex != null ? '_' + col.def.charIndex : (col.def.offsets.length > 1 ? '_' + col.idx : '')))}"` +
               ` data-ev-name="${escapeAttr(cellText)}" title="点击填写：${escapeAttr(cellText)}">` +
               `<span class="le-add-hint">＋ 填写</span></td>`;
           }
         }
-        // 整列 FLIP：给该列每个单元格打同列 key（分组共享 → 整块同移动）
-        html += cell.replace(/^<td/, `<td data-col-key="${escapeAttr(col.colId)}"`);
+        // 整列 FLIP + 语义宽度 class（对齐用）
+        const widthCls = col.type === 'tease' ? 'col-tease' : (col.type === 'char' ? 'col-char' : 'col-normal');
+        html += cell.replace(/^<td/, `<td data-col-key="${escapeAttr(col.colId)}"`)
+          .replace('class="', `class="${widthCls} `);
       });
       return html;
     };
@@ -1427,18 +2207,25 @@ function renderList() {
       const dateStr = fmtDate(v.updateDate);
       const cd = diffDays(v.updateDate, todayNoon());
       const cdTxt = cd === 0 ? '今天' : (cd > 0 ? `+${cd}` : String(cd));
+      // 版本持续天数 = 下一版本更新日 − 本版本更新日
+      const nextV = allSorted.find(sv => sv.tenths === v.tenths + 1);
+      const durDays = nextV ? diffDays(nextV.updateDate, v.updateDate) : null;
+      const durTxt = durDays != null ? ` · ${durDays}天` : '';
+      // 版本更新日期的来源标识（与事件列一致）
+      const verEv = v.events.find(e => e.defKey === 'version_update');
+      const verSrcDot = verEv ? offsetSrcDot(verEv.source) : '';
       if (editMode) {
         return `<td class="vt-ver">` +
           `<div style="font-size:15px;font-weight:600;line-height:1.4">` +
           `<span class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="ver" title="点击编辑版本信息">${prefix}${v.label}<span class="le-edit-hint">✏️</span></span>` +
           `</div>` +
           `<div class="muted" style="font-size:11px;line-height:1.3">` +
-          `(<span class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="update" title="点击修改更新日期">${dateStr}<span class="le-edit-hint">✏️</span></span> · ${cdTxt})` +
+          `(<span class="le-editable" data-game="${game.id}" data-tenths="${v.tenths}" data-cell-type="update" title="点击修改更新日期">${dateStr}<span class="le-edit-hint">✏️</span></span> · <span style="color:${cdColor(cd)};font-weight:600">${cdTxt}</span>${verSrcDot}${durTxt})` +
           `</div></td>`;
       }
       return `<td class="vt-ver">` +
         `<div style="font-size:15px;font-weight:600;line-height:1.4">${prefix}${v.label}</div>` +
-        `<div class="muted" style="font-size:11px;line-height:1.3">(${dateStr} · ${cdTxt})</div></td>`;
+        `<div class="muted" style="font-size:11px;line-height:1.3">(${dateStr} · <span style="color:${cdColor(cd)};font-weight:600">${cdTxt}</span>${verSrcDot}${durTxt})</div></td>`;
     };
     // ---- 更早的历史版本 ----
     olderVersions.forEach(v => {
@@ -1464,20 +2251,23 @@ function renderList() {
     });
     // 第一行：分组标题（普通列 rowspan=2，角色组 colspan）
     const isDefHidden = (d) => !!(d._hidden);
-    let headRow1 = '<th rowspan="2">版本</th>';
+    // 辅助：根据 group 类型返回宽度 class
+    const grpWidthCls = g => g.type === 'tease' ? 'col-tease' : (g.type === 'char' ? 'col-char' : 'col-normal');
+    let headRow1 = '<th rowspan="2" class="col-ver">版本</th>';
     groups.forEach(g => {
       const hid = g.cols.every(c => isDefHidden(c.def));
       const gDrag = editMode ? ` draggable="true" data-group-id="${escapeAttr(g.id)}"` : '';
       const grab = editMode ? '<span class="set-ev-grab" style="font-size:9px;margin-right:2px;opacity:.5">⠿</span>' : '';
+      const wcls = grpWidthCls(g);
       if (g.singleton) {
         const c = g.cols[0];
         const origKey = c.def._origKey || c.def.key;
         const dName = (game.colDisplayNames && game.colDisplayNames[g.id]) || (c.def.name + (c.def.sub ? c.def.sub[c.idx] : ''));
-        headRow1 += `<th class="le-group-drag" data-col-key="${escapeAttr(g.id)}" rowspan="2" style="${hid ? 'opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${eventColor(origKey, c.idx)};display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(dName)}${renameBtnHTML(game.id, g.id, 'group')}</th>`;
+        headRow1 += `<th class="le-group-drag ${wcls}" data-col-key="${escapeAttr(g.id)}" rowspan="2" style="background:${g.color};color:#fff${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:#fff;display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(dName)}${renameBtnHTML(game.id, g.id, 'group')}</th>`;
       } else {
         const colSpan = g.cols.length;
         const dName = (game.colDisplayNames && game.colDisplayNames[g.id]) || g.label;
-        headRow1 += `<th colspan="${colSpan}" class="char-group-head le-group-drag" data-col-key="${escapeAttr(g.id)}" style="background:${g.color}22;color:${g.color};font-size:11px;font-weight:700;padding:4px 6px;border-bottom:2px solid ${g.color}44${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:${g.color};width:6px;height:6px"></span> ${escapeHtml(dName)}${renameBtnHTML(game.id, g.id, 'group')}</th>`;
+        headRow1 += `<th colspan="${colSpan}" class="char-group-head le-group-drag ${wcls}" data-col-key="${escapeAttr(g.id)}" style="background:${g.color};color:#fff;font-size:11px;font-weight:700;padding:4px 6px;border-bottom:3px solid rgba(255,255,255,.55)${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:#fff;width:6px;height:6px"></span> ${escapeHtml(dName)}${renameBtnHTML(game.id, g.id, 'group')}</th>`;
       }
     });
     // 第二行：子列名（仅非单列的组才占第二行；编辑模式可拖拽，但只能在所属组内移动）
@@ -1486,14 +2276,22 @@ function renderList() {
       if (g.singleton) return;
       g.cols.forEach(col => {
         const origKey = col.def._origKey || col.def.key;
-        const color = eventColor(origKey, col.groupCi ?? col.idx);
+        const color = g.color;
         const hid = isDefHidden(col.def);
-        const cellText = col.def.sub ? col.def.sub[col.idx] : col.def.name;
+        // 去掉与大项重复的部分：char 子项只显示类型名（卡池/预告/PV），tease 子项只显示角色名
+        let cellText;
+        if (col.def.sub) {
+          cellText = col.type === 'char' ? col.def.name : (col.def.name + col.def.sub[col.idx]);
+        } else {
+          cellText = col.def.name;
+          if (col.type === 'tease') cellText = cellText.replace(/^新角色爆料·/, '');
+        }
         const dName = (game.colDisplayNames && game.colDisplayNames[col.colId]) || cellText;
+        const subWcls = col.type === 'tease' ? 'col-tease' : (col.type === 'char' ? 'col-char' : 'col-normal');
         const dragAttrs = editMode
-          ? ` draggable="true" data-col-id="${escapeAttr(col.colId)}" data-group-id="${escapeAttr(g.id)}" data-col-key="${escapeAttr(col.colId)}" class="le-col-drag"`
-          : '';
-        headRow2 += `<th style="font-size:10px;color:var(--text-soft);padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}08${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${dragAttrs}>${editMode ? '<span class="set-ev-grab" style="font-size:9px;margin-right:2px;opacity:.5">⠿</span>' : ''}${escapeHtml(dName)}${renameBtnHTML(game.id, col.colId, 'col')}</th>`;
+          ? ` draggable="true" data-col-id="${escapeAttr(col.colId)}" data-group-id="${escapeAttr(g.id)}" data-col-key="${escapeAttr(col.colId)}" class="le-col-drag ${subWcls}"`
+          : ` class="${subWcls}"`;
+        headRow2 += `<th style="font-size:10px;color:${color};padding:2px 4px;border-bottom:2px solid ${color}44;background:${color}1a${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${dragAttrs}>${editMode ? '<span class="set-ev-grab" style="font-size:9px;margin-right:2px;opacity:.5">⠿</span>' : ''}${escapeHtml(dName)}${renameBtnHTML(game.id, col.colId, 'col')}</th>`;
       });
     });
     const head = `<tr>${headRow1}</tr>${headRow2 ? '<tr>' + headRow2 + '</tr>' : ''}`;
@@ -1734,6 +2532,7 @@ function hideDropLine() { if (_dropLineEl) _dropLineEl.classList.remove('show');
 let _leActiveCell = null; // 当前正在编辑的单元格 DOM
 var _leCloseGuard = false;
 var _leMousedownHandler = null;
+var _leScrollHandler = null; // 滚动跟随监听器
 function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
   // 如果已有打开的编辑器，先关闭
   closeListCellEditor();
@@ -1741,7 +2540,8 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
   const game = state.games.find(g => g.id === gameId);
   if (!game) return;
 
-  const v = genGameVersions(game).find(v => v.tenths === tenths);
+  // 用列表视图的宽范围查找版本（避免时间轴窄范围导致列表中的版本查不到）
+  const v = listGameVersions(game).find(v => v.tenths === tenths);
   if (!v) return;
 
   _leActiveCell = cellEl;
@@ -1752,13 +2552,9 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
   editor.onclick = (e) => e.stopPropagation();
 
   if (cellType === 'ver') {
-    // 版本信息编辑（只读展示 + 备注）
+    // 版本备注编辑（日期请通过下方日期格单独修改）
     editor.innerHTML = `
-      <div class="le-editor-title">📋 版本 ${escapeHtml(v.label)} <small class="muted">(tenths=${tenths})</small></div>
-      <div class="field">
-        <label>更新日期</label>
-        <input type="date" id="le-date" value="${fmtDate(v.updateDate)}">
-      </div>
+      <div class="le-editor-title">📋 版本 ${escapeHtml(v.label)}</div>
       <div class="field">
         <label>版本备注（仅本地显示）</label>
         <input type="text" id="le-note" placeholder="可选，如「长草期」「大版本」" value="${escapeHtml(game.verNotes && game.verNotes[String(tenths)] || '')}">
@@ -1785,13 +2581,20 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
     const ci = Number(cellEl.dataset.charIndex || 0);
     const targetTenths = cellEl.dataset.targetTenths ? Number(cellEl.dataset.targetTenths) : null;
     const rowTenths = cellEl.dataset.tenths ? Number(cellEl.dataset.tenths) : null;  // 当前行版本（隐藏 key 用这个）
-    const targetVer = targetTenths != null ? genGameVersions(game).find(v => v.tenths === targetTenths) : null;
+    const targetVer = targetTenths != null ? listGameVersions(game).find(v => v.tenths === targetTenths) : null;
     const targetLabel = targetVer ? targetVer.label : '（目标版本不存在）';
     const cnKey = String(targetTenths) + '|' + ci;
     const currentName = (targetTenths != null && game.charNames && game.charNames[cnKey]) || '';
-    // 当前爆料事件日期：优先用 verEventOffsets 覆盖，否则目标版本更新日 + TEASE_OFF
+    // 当前爆料事件日期：从行版本（src）的 teaser 事件读——与保存/时间轴都用同一 key（verEventOffsets[rowTenths + '|' + hk]）
     let currentDateStr = '';
-    if (targetVer) {
+    const rowVer = rowTenths != null ? listGameVersions(game).find(v => v.tenths === rowTenths) : null;
+    if (rowVer) {
+      const rowTeaseEv = rowVer.events.find(e => e.historyKey === ('char_tease_' + ci) && !e.hidden);
+      const d = rowTeaseEv ? rowTeaseEv.date : addDays(rowVer.updateDate, TEASE_OFF);
+      currentDateStr = fmtDate(d);
+    }
+    // 若行版本查不到（理论不会），回退用目标版本
+    if (!currentDateStr && targetVer) {
       const teaseEv = targetVer.events.find(e => e.historyKey === ('char_tease_' + ci));
       const d = teaseEv ? teaseEv.date : addDays(targetVer.updateDate, TEASE_OFF);
       currentDateStr = fmtDate(d);
@@ -1805,7 +2608,7 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
       <div class="muted" style="font-size:11px;margin-bottom:8px">💡 此处填写的名称会显示在该游戏所有行的「新角色爆料·角色${CHARS[ci] || (ci+1)}」列中</div>
       <div class="field">
         <label>事件日期</label>
-        <input type="date" id="le-tease-date" value="${currentDateStr}" ${isHidden ? 'disabled' : ''}>
+        <input type="date" id="le-tease-date" value="${escapeAttr(currentDateStr || '')}" placeholder="留空用默认" ${isHidden ? 'disabled' : ''}>
       </div>
       <div class="field">
         <label>角色备注名</label>
@@ -1831,11 +2634,21 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
     const ci = ev.charIndex != null ? ev.charIndex : (ev.sub ?? 0);
     const charNameKey = String(tenths) + '|' + ci;
     const currentCharName = (isChar && game.charNames && game.charNames[charNameKey]) || '';
+    // 检测是否为绑定事件（如卡池→版本更新）
+    const binding = ev.def && ev.def._bindTo ? ev.def._bindTo : null;
+    const bindLabel = binding
+      ? (binding.src === 'version_update' ? '🔗 绑定：跟随版本更新日期' + (binding.off !== 0 ? `（偏移 ${binding.off >= 0 ? '+' : ''}${binding.off} 天）` : '')
+        : `🔗 绑定：跟随 ${binding.src}（偏移 ${binding.off >= 0 ? '+' : ''}${binding.off} 天）`)
+      : '';
+    // 当前日期（有值显示值；无值时默认版本更新日期，方便用户从该版本当天开始选）
+    const displayDate = (ev.date && !ev.noRef) ? fmtDate(ev.date) : fmtDate(v.updateDate);
     editor.innerHTML = `
       <div class="le-editor-title"><span class="chip-dot" style="background:${eventColor(ev.defKey, ev.charIndex ?? ev.sub ?? 0)};display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle"></span> ${escapeHtml(ev.name)} — 版本 ${escapeHtml(v.label)}</div>
+      ${bindLabel ? `<div class="muted" style="font-size:11px;margin-bottom:8px">${escapeHtml(bindLabel)}</div>` : ''}
       <div class="field">
-        <label>事件日期</label>
-        <input type="date" id="le-date" value="${fmtDate(ev.date)}" ${isHidden ? 'disabled' : ''}>
+        <label>事件日期${binding ? '（修改将覆盖自动绑定）' : '（默认版本更新日期）'}</label>
+        <input type="date" id="le-date" value="${escapeAttr(displayDate)}" data-dirty="1" ${isHidden ? 'disabled' : ''}>
+        ${binding ? '<div class="muted" style="font-size:11px;margin-top:4px">💡 留空则继续跟随源事件；填写后以你填的为准</div>' : ''}
       </div>
       ${isChar ? `
       <div class="field">
@@ -1858,14 +2671,35 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
       </div>`;
   }
 
-  // 定位到单元格旁边
-  const rect = cellEl.getBoundingClientRect();
+  // 定位到单元格旁边（fixed 定位 + 滚动跟随 + 底部防截断）
+  function positionEditor() {
+    if (!editor.parentElement || !cellEl.getBoundingClientRect) return;
+    const rect = cellEl.getBoundingClientRect();
+    const ew = 300; // 弹窗预估宽度
+    const eh = editor.offsetHeight || 280; // 弹窗实际高度（首次为0用默认值）
+    const gap = 4;
+    // 左：贴单元格右侧，超屏则靠右
+    let left = Math.min(rect.right + gap, window.innerWidth - ew);
+    if (left < 4) left = 4;
+    // 上：默认在单元格右侧对齐顶部；若底部空间不足则翻到单元格上方
+    let top = rect.top;
+    if (top + eh > window.innerHeight - 12) {
+      top = rect.bottom - eh; // 翻到上方，底部与单元格底部对齐
+      if (top < 4) top = 4; // 极端情况保证不超出视口顶
+    }
+    editor.style.left = left + 'px';
+    editor.style.top = top + 'px';
+  }
   editor.style.position = 'fixed';
-  editor.style.left = Math.min(rect.right, window.innerWidth - 320) + 'px';
-  editor.style.top = rect.top + 'px';
   editor.style.zIndex = '200';
-
   document.body.appendChild(editor);
+  positionEditor();
+  // 首次渲染后弹窗有实际高度了，再校正一次（防止底部被截断）
+  requestAnimationFrame(positionEditor);
+
+  // 滚动时跟随单元格重新定位
+  _leScrollHandler = () => { if (document.querySelector('.le-inline-editor') === editor) positionEditor(); };
+  window.addEventListener('scroll', _leScrollHandler, { passive: true });
 
   // 点击外部关闭（用 mousedown 更可靠）
   _leCloseGuard = true;
@@ -1884,6 +2718,7 @@ function closeListCellEditor() {
   if (el) el.remove();
   _leActiveCell = null;
   if (_leMousedownHandler) document.removeEventListener('mousedown', _leMousedownHandler, true);
+  if (_leScrollHandler) { window.removeEventListener('scroll', _leScrollHandler); _leScrollHandler = null; }
 }
 
 /** 打开列表表头（大项/小项）改名编辑器 */
@@ -1980,14 +2815,17 @@ window.saveListEvEdit = function(gameId, tenths, hk) {
     return;
   }
 
-  const dateStr = document.getElementById('le-date').value;
+  const dateInput = document.getElementById('le-date');
+  const dateStr = dateInput ? dateInput.value : '';
+  // ⚠️ 只有用户实际改过日期输入框才写 verEventOffsets；预填值（确认/绑定/继承）不动，避免调别的偏移时被误删/误升级
+  const dateDirty = !!(dateInput && dateInput.dataset.dirty === '1');
   // 角色事件：保存到 charNames（本版本该角色通用）；普通事件：保存到 eventTitles
   const charNameInput = document.getElementById('le-char-name');
   if (charNameInput) {
     // 角色事件
     const charNameVal = charNameInput.value.trim();
     if (!game.charNames) game.charNames = {};
-    const v = genGameVersions(game).find(v => v.tenths === tenths);
+    const v = listGameVersions(game).find(v => v.tenths === tenths);
     const ev = v ? v.events.find(e => e.historyKey === hk) : null;
     const ci = ev && ev.charIndex != null ? ev.charIndex : 0;
     const cnKey = String(tenths) + '|' + ci;
@@ -2001,36 +2839,24 @@ window.saveListEvEdit = function(gameId, tenths, hk) {
     if (titleVal) game.eventTitles[tkey] = titleVal;
     else delete game.eventTitles[tkey];
   }
-  // 保存日期偏移（逐版本覆盖，存入 verEventOffsets）
-  if (dateStr) {
-    const v = genGameVersions(game).find(v => v.tenths === tenths);
-    if (v) {
-      const ev = v.events.find(e => e.historyKey === hk);
-      if (ev) {
-        const newDate = parseDate(dateStr);
-        // 存储绝对偏移量（相对版本更新日期）
-        // eventOffset() 返回值直接用于 addDays(updateDate, off)，所以必须存绝对偏移
-        const absOff = diffDays(newDate, v.updateDate);
-        // 查找事件定义的默认偏移量，用于判断是否改回了默认值
-        let defOff = null;
-        for (const def of activeEvents()) {
-          const idx = def.offsets.findIndex((o, i) => {
-            const k = def.key + (def.offsets.length > 1 ? '_' + i : '');
-            return k === hk;
-          });
-          if (idx >= 0) { defOff = def.offsets[idx]; break; }
-        }
-        // 获取用户自定义的全局基准偏移（如有）
-        const customBase = getDefaultOffset(game, hk);
-        const effectiveDefault = (customBase !== null) ? customBase : defOff;
-        if (absOff !== effectiveDefault) {
+  // 保存日期偏移（逐版本覆盖，存入 verEventOffsets）——仅当用户实际改过日期
+  if (dateDirty) {
+    if (dateStr) {
+      const v = listGameVersions(game).find(v => v.tenths === tenths);
+      if (v) {
+        const ev = v.events.find(e => e.historyKey === hk);
+        if (ev) {
+          const newDate = parseDate(dateStr);
+          // 存储绝对偏移量（相对版本更新日期）
+          // eventOffset() 返回值直接用于 addDays(updateDate, off)，所以必须存绝对偏移
+          const absOff = diffDays(newDate, v.updateDate);
           if (!game.verEventOffsets) game.verEventOffsets = {};
           game.verEventOffsets[tenths + '|' + hk] = absOff;
-        } else {
-          // 改回了默认值，删除覆盖让系统用回默认计算
-          if (game.verEventOffsets) delete game.verEventOffsets[tenths + '|' + hk];
         }
       }
+    } else {
+      // 用户清空了日期 → 删除该版本该事件的确认偏移（回归自动计算）
+      if (game.verEventOffsets) delete game.verEventOffsets[tenths + '|' + hk];
     }
   }
   closeListCellEditor();
@@ -2080,17 +2906,20 @@ window.saveListTeaseEdit = function(gameId, targetTenths, charIndex, rowTenths) 
   } else {
     delete game.charNames[cnKey];
   }
-  // 爆料事件日期（存相对目标版本更新日的偏移，复用 verEventOffsets 机制）
+  // 爆料事件日期（存到行版本号对应的 verEventOffsets——与时间轴 makeVersion 查同一 key）
   const dateInput = document.getElementById('le-tease-date');
   const dateStr = dateInput ? dateInput.value : '';
   if (dateStr) {
-    const targetVer = genGameVersions(game).find(v => v.tenths === targetTenths);
-    if (targetVer) {
-      if (!game.verEventOffsets) game.verEventOffsets = {};
-      const off = diffDays(parseDate(dateStr), targetVer.updateDate);
-      game.verEventOffsets[String(targetTenths) + '|' + teaseHk] = off;
+    if (!game.verEventOffsets) game.verEventOffsets = {};
+    const rowVer = listGameVersions(game).find(v => v.tenths === rowTenths);
+    if (rowVer) {
+      // 偏移相对行版本（src）更新日，makeVersion 用同一规则读这个 key
+      game.verEventOffsets[String(rowTenths) + '|' + teaseHk] = diffDays(parseDate(dateStr), rowVer.updateDate);
     }
   }
+  // 一次性数据迁移：旧版 teaser 存到 target 版本（如 '71|char_tease_X'），新版按 src 存（'70|...'）
+  // 把每个 src 版本对应的 target 版本（旧逻辑位置）的 teaser 数据搬到 src
+  migrateTeaserOffsetsToSrc(game);
   closeListCellEditor();
   saveAndRender();
   toast(nameVal ? '已保存备注名与日期' : '已保存日期');
@@ -2228,6 +3057,13 @@ function renderCalendar() {
   host.querySelectorAll('.ev-chip').forEach(el => {
     el.addEventListener('click', () => openVersionModal(el.dataset.game, Number(el.dataset.tenths), el.dataset.hk));
   });
+  // 滚动到今天所在的格子（垂直居中）——双 rAF 确保所有布局完成后再滚动
+  const todayCell = host.querySelector('.cal-cell.today');
+  if (todayCell) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => { todayCell.scrollIntoView({ block: 'center' }); });
+    });
+  }
 }
 
 function cellHTML(dt, byDate, out) {
@@ -2236,9 +3072,29 @@ function cellHTML(dt, byDate, out) {
   const evs = byDate[k] || [];
   let chips = '';
   evs.slice(0, 4).forEach(it => {
-    chips += `<div class="ev-chip" data-game="${it.game.id}" data-tenths="${it.version.tenths}" data-hk="${it.ev.historyKey}" title="${escapeHtml(it.game.name)} ${escapeHtml(it.ev.title)}">` +
+    // 查角色备注名（与即将到来视图相同逻辑）
+    const ev = it.ev, g = it.game;
+    let remarkSuffix = '';
+    if (ev._isChar && g.charNames) {
+      const cn = g.charNames[String(it.version.tenths) + '|' + ev.charIndex];
+      if (cn) remarkSuffix = `（${escapeHtml(cn)}）`;
+    } else if (ev._tease && g.charNames) {
+      const ci = ev.charIndex != null ? ev.charIndex : 0;
+      const offset = g.teaseVersionOffset || 1;
+      const targetTenths = findTargetTenthsForTease(g, it.version.tenths, ci, offset);
+      // teaser 只用目标版本的 charNames，不回退到源版本
+      const cn = targetTenths != null ? g.charNames[String(targetTenths) + '|' + ci] : null;
+      if (cn) remarkSuffix = `（${escapeHtml(cn)}）`;
+    }
+    // 版本更新/前瞻显示版本号
+    const verLabel = (ev.defKey === 'version_update' || ev.defKey === 'version_preview')
+      ? ' v' + it.version.label : '';
+    const sizeCls = getTagSizeClass(ev.defKey, ev.charIndex, g);
+    // 显示名：colDisplayNames（列级）> eventTitles（版本级）> 默认名
+    const chipName = (g.colDisplayNames && g.colDisplayNames[ev.historyKey]) || ev.title;
+    chips += `<div class="ev-chip ${sizeCls}" data-game="${it.game.id}" data-tenths="${it.version.tenths}" data-hk="${it.ev.historyKey}" title="${escapeHtml(it.game.name)} v${it.version.label} ${escapeHtml(chipName)}${remarkSuffix}">` +
       `${gameIconHTML(it.game, 'chip-ico')}<span class="chip-dot" style="background:${eventColor(it.ev.defKey, it.ev.charIndex ?? it.ev.sub)}"></span>` +
-      `<span class="chip-txt">${escapeHtml(it.ev.title)}</span></div>`;
+      `<span class="chip-txt">${escapeHtml(chipName)}${verLabel}${remarkSuffix}</span></div>`;
   });
   if (evs.length > 4) chips += `<div class="muted" style="font-size:10px">+${evs.length - 4} 更多</div>`;
   return `<div class="cal-cell${out ? ' out' : ''}${isToday ? ' today' : ''}"><span class="dnum">${dt.getDate()}</span>${chips}</div>`;
@@ -2440,7 +3296,7 @@ function buildGpRulesTab(game) {
     '<div class="muted" style="margin-bottom:6px">你填的日期优先于默认偏移；未填版本会沿用你最近一次填的同一事件真实偏移（不做平均）。</div>';
   activeEvents().forEach(def => {
     def.offsets.forEach((defOff, idx) => {
-      const hk = def.key + (def.offsets.length > 1 ? '_' + idx : '');
+      const hk = def.key + (def.offsets.length > 1 || def.charIndex != null ? '_' + (def.charIndex != null ? def.charIndex : idx) : '');
       const base = (game.baseOffsets && typeof game.baseOffsets[hk] === 'number') ? game.baseOffsets[hk] : defOff;
       const refDate = fmtDate(addDays(anchorDt, base));
       const confCount = game.verEventOffsets ? Object.keys(game.verEventOffsets).filter(k => k.endsWith('|' + hk)).length : 0;
@@ -2643,75 +3499,9 @@ function saveGamePanel(game) {
     _gpGameId = ng.id; game = ng;
   }
 
-  // --- 版本日程表数据 ---
-  saveGpVersionData(game);
+  // --- 版本日程表数据 ---（已统一由各视图的就地编辑器保存，无需在此批量收集）
 
   saveAndRender(); hideModal(); toast('已保存');
-}
-
-/** 从版本日程表 DOM 收集所有修改并写入 game 对象 */
-function saveGpVersionData(game) {
-  // 更新日期
-  document.querySelectorAll('.gp-inp-date[data-field="updateDate"]').forEach(inp => {
-    const tenths = Number(inp.dataset.tenths);
-    const val = inp.value;
-    if (val) {
-      if (!game.verUpdateDates) game.verUpdateDates = {};
-      game.verUpdateDates[String(tenths)] = val;
-    }
-  });
-
-  // 事件日期 + 标题
-  document.querySelectorAll('.gp-ev-date').forEach(inp => {
-    const tenths = Number(inp.dataset.tenths);
-    const hk = inp.dataset.hk;
-    const dateStr = inp.value;
-    if (!dateStr) return;
-    const v = genGameVersions(game).find(v => v.tenths === tenths);
-    if (!v) return;
-    const newDate = parseDate(dateStr);
-    const absOff = diffDays(newDate, v.updateDate);
-    let defOff = null;
-    for (const def of activeEvents()) {
-      const idx = def.offsets.findIndex((o, i) => { const k = def.key + (def.offsets.length > 1 ? '_' + i : ''); return k === hk; });
-      if (idx >= 0) { defOff = def.offsets[idx]; break; }
-    }
-    const customBase = getDefaultOffset(game, hk);
-    const effectiveDefault = (customBase !== null) ? customBase : defOff;
-    if (absOff !== effectiveDefault) {
-      if (!game.verEventOffsets) game.verEventOffsets = {};
-      game.verEventOffsets[tenths + '|' + hk] = absOff;
-    } else { if (game.verEventOffsets) delete game.verEventOffsets[tenths + '|' + hk]; }
-  });
-
-  // 事件标题
-  document.querySelectorAll('.gp-inp-title').forEach(inp => {
-    const tenths = Number(inp.dataset.tenths);
-    const hk = inp.dataset.hk;
-    const val = inp.value.trim();
-    if (!game.eventTitles) game.eventTitles = {};
-    const tkey = evTitleKey(tenths, hk);
-    if (val) game.eventTitles[tkey] = val; else delete game.eventTitles[tkey];
-  });
-
-  // 版本备注
-  document.querySelectorAll('.gp-inp-note').forEach(inp => {
-    const tenths = Number(inp.dataset.tenths);
-    const val = inp.value.trim();
-    if (!game.verNotes) game.verNotes = {};
-    if (val) game.verNotes[String(tenths)] = val; else delete game.verNotes[String(tenths)];
-  });
-
-  // 隐藏/恢复事件
-  document.querySelectorAll('.gp-hide-ev').forEach(cb => {
-    const tenths = Number(cb.dataset.tenths);
-    const hk = cb.dataset.hk;
-    const hideKey = tenths + '|' + hk;
-    if (!game.verHiddenEvents) game.verHiddenEvents = {};
-    if (cb.checked) game.verHiddenEvents[hideKey] = true; else delete game.verHiddenEvents[hideKey];
-  });
-
-  // 恢复默认（↺ 按钮）— 在 onclick 中直接处理，不在此处
 }
 
 /* openGameModal → 兼容入口，统一调用 openGamePanel */
@@ -2845,7 +3635,7 @@ function showOffsetSummary(optGameId) {
       `<span style="font-size:15px;font-weight:700">${escapeHtml(game.name)}</span>` +
       `<span class="muted" style="font-size:12px">共 <b>${total}</b> 个偏移点</span>` +
       `</div>` +
-      `<div style="font-size:13px;margin-bottom:6px">🟢你手动填写 <b>${gc}</b> · 🟡自动沿用 <b>${gi}</b> · 🔵全局基准 <b>${gb}</b> · ⚪系统默认 <b>${gd}</b></div>` +
+      `<div style="font-size:13px;margin-bottom:6px">🟢官方日期（已确认） <b>${gc}</b> · 🟡计算所得（自动沿用） <b>${gi}</b> · 🔵基准推算 <b>${gb}</b> · ⚪未设置（无参考数据） <b>${gd}</b></div>` +
       (evLines ? `<div style="border-top:1px dashed var(--border);padding-top:6px">${evLines}</div>` : '') +
       `</div>`
     );
@@ -2981,6 +3771,83 @@ function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp
 function escapeAttr(s) { return escapeHtml(s); }
 function saveAndRender() { Storage.save(state); render(); }
 function saveLocalOnly() { Storage.saveLocal(state); render(); }
+
+/* —— 标签大小排序（设置面板 ④）—— 每个游戏可独立，或编辑全局默认 */
+function saveTagSizeMap(map) {
+  if (curTagSizeGame === '__default__') {
+    state.tagSizeMap = map;
+  } else {
+    const g = state.games.find(x => x.id === curTagSizeGame);
+    if (g) g.tagSizeMap = map;
+  }
+  saveLocalOnly();
+}
+function currentTagSizeMap() {
+  if (curTagSizeGame === '__default__') return state.tagSizeMap || null;
+  const g = state.games.find(x => x.id === curTagSizeGame);
+  return g ? (g.tagSizeMap || null) : null;
+}
+// 按「重要程度」排序的 {key,label,level} 列表（level 越小 = 越重要 = 越大）
+function orderedTagSizeList() {
+  const map = currentTagSizeMap();
+  return TAG_SIZE_DEFS.map(d => {
+    const level = (map && map[d.key] != null) ? map[d.key] : d.def;
+    return { key: d.key, label: d.label, level };
+  }).sort((a, b) => a.level - b.level || (TAG_SIZE_DEFS.findIndex(x => x.key === a.key) - TAG_SIZE_DEFS.findIndex(x => x.key === b.key)));
+}
+function renderTagSizeSettings() {
+  const gameOpts = ['<option value="__default__"' + (curTagSizeGame === '__default__' ? ' selected' : '') + '>🌐 全局默认（所有游戏）</option>']
+    .concat((state.games || []).map(g => '<option value="' + escapeAttr(g.id) + '"' + (curTagSizeGame === g.id ? ' selected' : '') + '>' + escapeHtml(g.name) + '</option>'));
+  const list = orderedTagSizeList();
+  const rows = list.map((it, i) => {
+    const lab = TAG_SIZE_LABELS[it.level] || '中';
+    const canUp = i > 0, canDown = i < list.length - 1;
+    return `<div class="tag-size-row" data-key="${it.key}">
+      <span class="ts-grip">⠿</span>
+      <span class="ts-name">${escapeHtml(it.label)}</span>
+      <span class="ts-badge">${lab}</span>
+      <button type="button" class="ghost ts-up" data-key="${it.key}" ${canUp ? '' : 'disabled'} title="调大（更重要）">▲</button>
+      <button type="button" class="ghost ts-down" data-key="${it.key}" ${canDown ? '' : 'disabled'} title="调小（更次要）">▼</button>
+    </div>`;
+  }).join('');
+  return `<select class="tag-size-sel" id="s-tagsize-game">${gameOpts.join('')}</select>
+    <div class="muted" style="margin:2px 0 4px">越靠上 = 越重要 = 标签越大。用「▲/▼」调整重要程度，立即生效。</div>
+    <div class="tag-size-list">${rows}</div>
+    <button type="button" class="ghost" id="s-tagsize-reset" style="margin-top:8px">↺ 重置为默认顺序</button>`;
+}
+function bindTagSizeSettings(body) {
+  const sel = body.querySelector('#s-tagsize-game');
+  if (sel) sel.onchange = () => {
+    curTagSizeGame = sel.value;
+    const box = body.querySelector('#set-tag-sizes');
+    if (box) { box.innerHTML = renderTagSizeSettings(); bindTagSizeSettings(body); }
+  };
+  const reset = body.querySelector('#s-tagsize-reset');
+  if (reset) reset.onclick = () => {
+    if (curTagSizeGame === '__default__') delete state.tagSizeMap;
+    else { const g = state.games.find(x => x.id === curTagSizeGame); if (g) delete g.tagSizeMap; }
+    saveLocalOnly();
+    const box = body.querySelector('#set-tag-sizes');
+    if (box) { box.innerHTML = renderTagSizeSettings(); bindTagSizeSettings(body); }
+    toast('已重置为默认顺序');
+  };
+  body.querySelectorAll('.ts-up').forEach(b => b.onclick = () => moveTagSize(b.dataset.key, -1, body));
+  body.querySelectorAll('.ts-down').forEach(b => b.onclick = () => moveTagSize(b.dataset.key, 1, body));
+}
+function moveTagSize(key, dir, body) {
+  const list = orderedTagSizeList();
+  const idx = list.findIndex(x => x.key === key);
+  if (idx < 0) return;
+  const ni = idx + dir;
+  if (ni < 0 || ni >= list.length) return;
+  const a = list[idx], b = list[ni];
+  const tmp = a.level; a.level = b.level; b.level = tmp;
+  const map = {};
+  list.forEach(it => { map[it.key] = it.level; });
+  saveTagSizeMap(map);
+  const box = body.querySelector('#set-tag-sizes');
+  if (box) { box.innerHTML = renderTagSizeSettings(); bindTagSizeSettings(body); }
+}
 
 let toastTimer = null;
 function toast(msg) {
@@ -3130,13 +3997,14 @@ function openSettings() {
     <div class="modal-tabs">
       <button type="button" class="mtab active" data-tab="s-basic">基础设置</button>
       <button type="button" class="mtab" data-tab="s-events">事件管理</button>
+      <button type="button" class="mtab" data-tab="s-appearance">外观</button>
     </div>
     <div id="tab-s-basic">
       <div class="field"><label>临近提醒提前天数</label><input type="number" id="s-lead" min="1" max="30" value="${state.leadDays || LEAD_DEFAULT}"></div>
       <div class="field"><label>列表视图显示版本数（过去 / 未来）</label><div style="display:flex;gap:8px;align-items:center"><input type="number" id="s-listpast" min="0" max="30" value="${state.listPast || 2}" style="width:72px"> 过去 <input type="number" id="s-list" min="1" max="30" value="${state.listCount || 8}" style="width:72px"> 未来</div></div>
       <div class="field"><label>视图起始（今天往前，天）</label><input type="number" id="s-back" min="0" max="365" value="${diffDays(todayNoon(), parseDate(state.viewStart))}"></div>
       <div class="field"><label>视图结束（今天往后，天）</label><input type="number" id="s-fwd" min="30" max="1095" value="${diffDays(parseDate(state.viewEnd), todayNoon())}"></div>
-      <div class="field"><label>时间轴缩放（像素/天）</label><input type="range" id="s-zoom" min="2" max="24" value="${state.dayW || 4}" style="width:200px"> <span id="s-zoom-v">${state.dayW || 4}px</span></div>
+      <div class="field"><label>时间轴缩放（像素/天）</label><input type="range" id="s-zoom" min="2" max="48" value="${state.dayW || 4}" style="width:200px"> <span id="s-zoom-v">${state.dayW || 4}px</span></div>
       <div class="field"><label><input type="checkbox" id="s-labels" ${state.showLabels ? 'checked' : ''}> 时间轴显示事件标签</label></div>
       <hr class="set-sep">
       <div class="field"><label>数据备份（落盘到本机文件）</label>
@@ -3183,6 +4051,13 @@ function openSettings() {
           <div class="muted" style="margin-bottom:8px">「新角色爆料」从角色分组里独立成一块，按角色拆成多个子类（角色一爆料/角色二爆料…）。它们绑定的是「当前版本 + 偏移」那个<b>未来版本</b>的角色备注名（角色爆料通常提前放出），所以填了未来版本的角色备注名后这里会自动显示。在上方分组标题旁可设置绑定的版本偏移（默认下 1 个版本）。拖拽子类可调整爆料列的先后顺序（与角色分组顺序一致）。想要 1 个或更多子类，改上方「每版角色数」即可。</div>
           <div id="set-tease-group">${teaseHtml}</div>
         </div>
+        <div class="field"><label>④ 标签大小排序（拖拽调整重要程度 → 决定月历/即将到来/时间轴的标签尺寸）</label>
+          <div class="muted" style="margin-bottom:8px">越靠上 = 越重要 = 标签越大。默认：版本更新 > 版本前瞻 > 角色卡池 > 新角色爆料 > 角色预告/PV。每个游戏可独立调整（选择上方游戏后修改），不调整时使用下方全局默认。</div>
+          <div id="set-tag-sizes">${renderTagSizeSettings()}</div>
+        </div>
+      </div>
+      <div id="tab-s-appearance" class="hidden">
+        ${renderAppearanceTab()}
       </div>
   `;
 
@@ -3192,8 +4067,12 @@ function openSettings() {
     body.querySelectorAll('.mtab').forEach(x => x.classList.toggle('active', x.dataset.tab === tab));
     document.getElementById('tab-s-basic').classList.toggle('hidden', tab !== 's-basic');
     document.getElementById('tab-s-events').classList.toggle('hidden', tab !== 's-events');
+    document.getElementById('tab-s-appearance').classList.toggle('hidden', tab !== 's-appearance');
   }
   body.querySelectorAll('.mtab').forEach(t => t.onclick = () => switchTab(t.dataset.tab));
+
+  /* ---- ④ 标签大小排序（每个游戏独立 / 全局默认）---- */
+  bindTagSizeSettings(body);
 
   /* ---- 基础设置：实时响应 ---- */
   const zoomInp = body.querySelector('#s-zoom');
@@ -3245,6 +4124,17 @@ function openSettings() {
     // 新角色爆料绑定的版本偏移
     const offEl = body.querySelector('#s-tease-off');
     if (offEl) state.teaseVersionOffset = Math.max(0, Math.min(5, Number(offEl.value) || 0));
+    // 外观：倒计时颜色分级
+    const cdColors = {};
+    ['past', 'today', 'soon', 'mid', 'far'].forEach(k => {
+      const sw = body.querySelector('.cd-swatch[data-tier="' + k + '"]');
+      if (sw) cdColors[k] = (sw.dataset.color || '#6b7280').toUpperCase();
+    });
+    state.cdColors = cdColors;
+    const soonInp = body.querySelector('#s-cd-soon');
+    const midInp = body.querySelector('#s-cd-mid');
+    if (soonInp) state.cdSoonDays = Math.max(1, Number(soonInp.value) || 10);
+    if (midInp) state.cdMidDays = Math.max((state.cdSoonDays || 10) + 1, Number(midInp.value) || 30);
     // 事件管理
     saveEventSettings(body);
     saveAndRender(); hideModal(); toast('设置已保存');
@@ -3423,6 +4313,38 @@ function openSettings() {
   };
 
   document.getElementById('modal-cancel').onclick = hideModal;
+
+  // 外观：倒计时调色板交互
+  body.querySelectorAll('.cd-swatch').forEach(sw => {
+    sw.onclick = (e) => {
+      e.stopPropagation();
+      const tier = sw.dataset.tier;
+      const pal = body.querySelector('.cd-palette[data-tier="' + tier + '"]');
+      if (!pal) return;
+      const open = pal.classList.contains('hidden');
+      body.querySelectorAll('.cd-palette').forEach(p => p.classList.add('hidden'));
+      if (open) pal.classList.remove('hidden');
+    };
+  });
+  body.querySelectorAll('.cd-pal-sw').forEach(ps => {
+    ps.onclick = (e) => {
+      e.stopPropagation();
+      const tier = ps.closest('.cd-palette').dataset.tier;
+      setTierColor(body, tier, ps.dataset.col);
+    };
+  });
+  body.querySelectorAll('.cd-color-inp').forEach(ci => {
+    ci.oninput = (e) => { e.stopPropagation(); setTierColor(body, ci.closest('.cd-palette').dataset.tier, ci.value, true); };
+  });
+  body.querySelectorAll('.cd-hex-inp').forEach(hx => {
+    hx.oninput = (e) => {
+      e.stopPropagation();
+      let v = hx.value.trim();
+      if (!v.startsWith('#')) v = '#' + v;
+      if (/^#[0-9a-fA-F]{6}$/.test(v)) setTierColor(body, hx.closest('.cd-palette').dataset.tier, v, false, true);
+    };
+  });
+
   switchTab(curSettingsTab);
   showModal();
 }
