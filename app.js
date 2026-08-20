@@ -3958,6 +3958,32 @@ function importJSON(file) {
   r.readAsText(file);
 }
 
+// 恢复为代码里固化的默认数据（USER_DEFAULT_STATE）：覆盖本设备当前所有数据
+function restoreDefaults() {
+  if (!confirm('确定把当前网页数据恢复为默认设置吗？\n这会覆盖本设备当前的全部数据，且不可撤销。\n建议先点顶栏「⬇ 数据 → 导出 JSON」备份。')) return;
+  state = JSON.parse(JSON.stringify(USER_DEFAULT_STATE));
+  if (!state.visibleGames) { state.visibleGames = {}; state.games.forEach(g => state.visibleGames[g.id] = true); }
+  state.games.forEach(migrateGame);
+  if (typeof state.dayW !== 'number') state.dayW = 4;
+  if (typeof state.listCount !== 'number') state.listCount = 8;
+  if (typeof state.listPast !== 'number') state.listPast = 2;
+  if (typeof state.showLabels !== 'boolean') state.showLabels = true;
+  state.listEditMode = false;
+  if (!state.customEvents || !Array.isArray(state.customEvents)) state.customEvents = JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE));
+  if (!state.charSubOrder || !state.charSubOrder.length) state.charSubOrder = ['char_banner', 'char_preview', 'char_pv'];
+  if (!state.charGroupOrder || !state.charGroupOrder.length) state.charGroupOrder = [0, 1, 2, 3, 4, 5];
+  if (typeof state.teaseVersionOffset !== 'number' || state.teaseVersionOffset < 0) state.teaseVersionOffset = 1;
+  if (typeof state.offsetOnlyConfirmed !== 'boolean') state.offsetOnlyConfirmed = false;
+  if (!Array.isArray(state.listColumnOrder)) state.listColumnOrder = [];
+  if (!Array.isArray(state.listGroupOrder)) state.listGroupOrder = [];
+  if (typeof state.listSubOrder !== 'object' || !state.listSubOrder) state.listSubOrder = {};
+  visibleGames = state.visibleGames || {};
+  Storage.save(state);
+  render();
+  hideModal();
+  toast('已恢复为默认数据');
+}
+
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function escapeAttr(s) { return escapeHtml(s); }
 function saveAndRender() { Storage.save(state); render(); }
@@ -4208,6 +4234,11 @@ function openSettings() {
       </div>
       <div class="muted">也可用顶栏「⬇ 数据」菜单做手动备份或跨设备/云端搬运。</div>
       <hr class="set-sep">
+      <div class="field"><label>恢复为默认数据（固化在代码里的版本）</label>
+        <div class="muted" style="margin-bottom:8px">把你导出的那份默认配置（已固化进代码）一键写回<b>本设备</b>。适用于旧浏览器仍显示旧数据、想统一成默认状态的场景。<b>会覆盖本设备当前全部数据，且不可撤销</b>，建议先点顶栏「⬇ 数据 → 导出 JSON」备份。</div>
+        <button type="button" class="danger" id="s-restore-default">↺ 恢复为默认数据</button>
+      </div>
+      <hr class="set-sep">
       <div class="field"><label>云端同步（跨设备，登录即用）</label>
         <div class="muted" style="margin-bottom:8px">在 <b>app.js 顶部</b>填入 Supabase 项目的 URL 与 anon key，并在 Supabase SQL Editor 执行建表语句后即可使用。登录后所有改动自动实时同步到云端，换设备打开网页登录即可看到相同记录。未配置时自动降级为本地。</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
@@ -4291,6 +4322,8 @@ function openSettings() {
   if (cLogout) cLogout.onclick = () => { cloudSignOut(); };
   const cSync = body.querySelector('#c-sync');
   if (cSync) cSync.onclick = () => { syncNow(); };
+  const rdef = body.querySelector('#s-restore-default');
+  if (rdef) rdef.onclick = restoreDefaults;
   const cSql = body.querySelector('#c-sql');
   if (cSql) cSql.onclick = () => {
     const sql = buildSql();
