@@ -314,6 +314,20 @@ function addDays(dt, n) { return new Date(dt.getTime() + n * DAY); }
 function stripTime(dt) { return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 12, 0, 0); }
 function diffDays(a, b) { return Math.round((stripTime(a) - stripTime(b)) / DAY); }
 function todayNoon() { const t = new Date(); t.setHours(12, 0, 0, 0); return t; }
+function uid() { return 'u_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+// 健壮日期解析：兼容 Date 对象、'YYYY-MM-DD'、ISO 字符串、时间戳；
+// 解决 userEvents 经 JSON 持久化后 Date 退化为字符串的问题
+function asDate(d) {
+  if (d instanceof Date) return isNaN(d.getTime()) ? new Date(NaN) : d;
+  if (typeof d === 'number') return new Date(d);
+  if (typeof d === 'string') {
+    const t = d.split('T')[0];
+    const [y, m, day] = t.split('-').map(Number);
+    if (!y || !m || !day) return new Date(NaN);
+    return new Date(y, m - 1, day, 12, 0, 0);
+  }
+  return new Date(NaN);
+}
 
 // 倒计时颜色分级：根据剩余天数返回对应颜色（优先用设置里自定义的值，缺省回落默认）
 function cdColor(cd) {
@@ -926,6 +940,8 @@ const USER_DEFAULT_STATE = {
   "listColumnOrder": [],
   "teaseVersionOffset": 1,
   "offsetOnlyConfirmed": true,
+  "userEvents": [],
+  "userQuickTags": {},
   "updatedAt": 1787231860382
 };
 
@@ -970,6 +986,11 @@ async function init() {
   if (loaded && loaded.games && loaded.games.length) {
     state = loaded;
     if (!state.visibleGames) { state.visibleGames = {}; state.games.forEach(x => state.visibleGames[x.id] = true); }
+    // 兼容旧版本本机数据：自定义事件相关字段可能缺失，加载后兜底补上，避免点击「自定义事件」时崩溃
+    if (!Array.isArray(state.userEvents)) state.userEvents = [];
+    if (typeof state.userQuickTags !== 'object' || !state.userQuickTags) state.userQuickTags = {};
+    // 持久化后 Date 会变成字符串，加载时规整回 Date，否则 fmtDate/xBody 调 getFullYear 会崩
+    state.userEvents.forEach(ce => { if (ce && ce.date != null) ce.date = asDate(ce.date); });
   } else {
     state = defaultState();
     Storage.save(state);
@@ -1615,7 +1636,7 @@ function renderTimeline() {
       const targetVer = (idx >= 0 && tOff > 0) ? allVers[idx + tOff] : (tOff <= 0 ? v : null);
       if (targetVer) validTease.add(v.tenths + '|' + ci);
     }));
-    let blocks = '', marks = '', labelItems = [];
+    let blocks = '', marks = '', labelItems = [], custHtml = '';
     // 预计算版本块位置，确保相邻版本无缝衔接（消除日期间隙）
     const vPositions = versions.map(v => ({
       left: xBody(v.updateDate),
@@ -1749,16 +1770,25 @@ function renderTimeline() {
       });
     }
     const labels = labelItems.map(it => it.html).join('');
+    // 自定义事件：虚线竖线 + ◆标签，固定在下沿带，不与版本事件标签碰撞处理
+    (state.userEvents || []).forEach(ce => {
+      if (ce.gameId !== game.id) return;
+      const mLeft = xBody(ce.date);
+      if (mLeft < 0 || mLeft > totalDays * dayW) return;
+      const note = ce.note ? '（' + ce.note + '）' : '';
+      custHtml += `<div class="tl-cust-mark" data-cust-id="${ce.id}" title="${escapeAttr(ce.name + note)}" style="left:${mLeft}px;color:${ce.color}"></div>`;
+      custHtml += `<div class="tl-cust-tag" data-cust-id="${ce.id}" title="${escapeAttr(ce.name + note)}" style="left:${mLeft}px;color:${ce.color}">◆ ${escapeHtml(ce.name + note)}</div>`;
+    });
     lanes += `<div class="tl-lane" style="height:${laneH}px">` +
       `<div class="tl-lane-label" style="width:${labelW}px">${gameIconHTML(game, 'icon')}<span>${escapeHtml(game.name)}</span></div>` +
-      `<div class="tl-lane-body" style="height:${laneH}px">${blocks}${marks}${labels}</div></div>`;
+      `<div class="tl-lane-body" style="height:${laneH}px">${blocks}${marks}${labels}${custHtml}</div></div>`;
   });
 
   const side = timelineSidebarHTML();
   host.innerHTML = `<div class="tl-layout"><div class="timeline-scroll"><div class="timeline-inner" style="width:${width}px;height:${Math.max(1, visibleList.length) * laneH + 4}px">${overlay}${lanes}</div></div>${side}</div>`;
   const sc = host.querySelector('.timeline-scroll');
   if (sc) sc.scrollLeft = Math.max(0, xOf(todayNoon()) - 320);
-  bindTimelineEvents();
+  try { bindTimelineEvents(); } catch(e) { console.error('[GVS] bindTimelineEvents 出错:', e); }
   host.querySelectorAll('.up-item').forEach(el => el.addEventListener('click', () => openVersionModal(el.dataset.game, Number(el.dataset.tenths), el.dataset.hk)));
 }
 
@@ -1941,6 +1971,7 @@ function bindTimelineEvents() {
         else if (act === 'edit') { enterEditMode(host, tlInner, card); }
         else if (act === 'cancel') { exitEditMode(host, tlInner, card); }
         else if (act === 'save') { saveEditChanges(host, tlInner, card); }
+        else if (act === 'cust-edit') { unpinHoverCard(host, card); openCustomEventModal(btn.dataset.custId); }
       } catch (err) {
         console.error('[GVS] 卡片操作出错', err);
         toast('操作出错：' + err.message);
@@ -1952,7 +1983,7 @@ function bindTimelineEvents() {
   document.addEventListener('click', function outsideClose(e) {
     if (!tlCard || !tlCard.classList.contains('tl-pinned')) return;
     if (tlCard.contains(e.target)) return;
-    if (e.target.closest('.tl-event-mark, .tl-evt-tag')) return;
+    if (e.target.closest('.tl-event-mark, .tl-evt-tag, .tl-cust-mark, .tl-cust-tag')) return;
     unpinHoverCard(host, tlCard);
   });
 
@@ -2090,6 +2121,42 @@ function bindTimelineEvents() {
   });
   host.querySelectorAll('.resize').forEach(el => {
     el.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); startResize(el.dataset.game, Number(el.dataset.tenths), e); });
+  });
+  // 自定义事件：点击显示与正常事件一致的固定浮窗卡片（含日期/距今/备注/编辑按钮）
+  host.querySelectorAll('.tl-cust-mark, .tl-cust-tag').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const ce = (state.userEvents || []).find(x => x.id === el.dataset.custId);
+      if (!ce) return;
+      const game = state.games.find(g => g.id === ce.gameId);
+      const gname = game ? game.name : '未知游戏';
+      // 构建与正常事件同款的卡片 HTML
+      const date = new Date(ce.date);
+      const days = diffDays(date, todayNoon());
+      const dAbs = Math.abs(days);
+      const dayTxt = days === 0 ? '今天' : (days > 0 ? '还有 ' + dAbs + ' 天' : dAbs + ' 天前');
+      const dayCls = days >= 0 ? 'thc-day-future' : 'thc-day-past';
+      const noteHtml = ce.note
+        ? `<div class="thc-row"><span class="thc-k">备注</span><span class="thc-v" style="color:${ce.color || '#6366f1'}">${escapeHtml(ce.note)}</span></div>` : '';
+      const cardHtml =
+        `<div class="thc-block">` +
+          `<div class="thc-title"><span class="thc-dot" style="background:${ce.color || '#6366f1'}"></span>◆ ${escapeHtml(ce.name)}</div>` +
+          `<div class="thc-row"><span class="thc-k">日期</span><span class="thc-v">${fmtDate(date)} ${TL_WK[date.getDay()]}</span></div>` +
+          `<div class="thc-row"><span class="thc-k">距今</span><span class="thc-v ${dayCls}">${dayTxt}</span></div>` +
+          `<div class="thc-row"><span class="thc-k">所属游戏</span><span class="thc-v">${escapeHtml(gname)}</span></div>` +
+          noteHtml +
+        `</div>` +
+        `<div class="thc-sub">${escapeHtml(gname)} · ${escapeHtml(ce.name)}</div>` +
+        `<div class="thc-actions">` +
+          `<button class="thc-btn" data-act="close">关闭</button>` +
+          `<button class="thc-btn primary" data-act="cust-edit" data-cust-id="${ce.id}">✏️ 编辑</button>` +
+        `</div>`;
+      if (!tlCard) { tlCard = document.createElement('div'); tlCard.className = 'tl-hover-card'; tlInner.appendChild(tlCard); bindCardActions(tlCard); }
+      tlCard.dataset.ctx = JSON.stringify({ custId: ce.id });
+      tlCard.innerHTML = cardHtml;
+      positionTlCard(tlInner, tlCard, el);
+      tlCard.classList.add('tl-pinned', 'show');
+    });
   });
 }
 
@@ -3225,6 +3292,16 @@ function renderCalendar() {
     const k = fmtDate(it.date);
     (byDate[k] = byDate[k] || []).push(it);
   });
+  // 自定义事件（列表不显示，仅时间轴/月历）
+  const custByDate = {};
+  (state.userEvents || []).forEach(ce => {
+    if (visibleGames[ce.gameId] === false) return;
+    const g = state.games.find(x => x.id === ce.gameId);
+    if (!g) return;
+    if (searchQuery && !(g.name.includes(searchQuery) || (ce.name && ce.name.includes(searchQuery)) || (ce.note && ce.note.includes(searchQuery)))) return;
+    const k = fmtDate(ce.date);
+    (custByDate[k] = custByDate[k] || []).push(ce);
+  });
   let cur = new Date(vStart.getFullYear(), vStart.getMonth(), 1, 12, 0, 0);
   let html = '';
   const dow = ['日', '一', '二', '三', '四', '五', '六'];
@@ -3233,20 +3310,23 @@ function renderCalendar() {
     const firstDow = new Date(y, m, 1, 12, 0, 0).getDay();
     const daysInMonth = new Date(y, m + 1, 0, 12, 0, 0).getDate();
     let cells = '';
-    for (let i = 0; i < firstDow; i++) cells += cellHTML(new Date(y, m, 1 - (firstDow - i), 12, 0, 0), byDate, true);
+    for (let i = 0; i < firstDow; i++) cells += cellHTML(new Date(y, m, 1 - (firstDow - i), 12, 0, 0), byDate, custByDate, true);
     for (let d = 1; d <= daysInMonth; d++) {
       const dt = new Date(y, m, d, 12, 0, 0);
-      cells += (dt < vStart || dt > vEnd) ? cellHTML(dt, byDate, true) : cellHTML(dt, byDate, false);
+      cells += (dt < vStart || dt > vEnd) ? cellHTML(dt, byDate, custByDate, true) : cellHTML(dt, byDate, custByDate, false);
     }
     const rem = (7 - ((firstDow + daysInMonth) % 7)) % 7;
-    for (let i = 0; i < rem; i++) cells += cellHTML(new Date(y, m + 1, i + 1, 12, 0, 0), byDate, true);
+    for (let i = 0; i < rem; i++) cells += cellHTML(new Date(y, m + 1, i + 1, 12, 0, 0), byDate, custByDate, true);
     let head = ''; dow.forEach(w => head += `<div class="cal-dow">${w}</div>`);
     html += `<div class="month" id="month-${y}-${m + 1}"><div class="month-title">${y} 年 ${m + 1} 月</div><div class="calendar-scroll"><div class="cal-grid">${head}${cells}</div></div></div>`;
     cur = new Date(y, m + 1, 1, 12, 0, 0);
   }
   host.innerHTML = html;
-  host.querySelectorAll('.ev-chip').forEach(el => {
+  host.querySelectorAll('.ev-chip:not(.cust-chip)').forEach(el => {
     el.addEventListener('click', () => openVersionModal(el.dataset.game, Number(el.dataset.tenths), el.dataset.hk));
+  });
+  host.querySelectorAll('.ev-chip.cust-chip').forEach(el => {
+    el.addEventListener('click', () => openCustomEventModal(el.dataset.custId));
   });
   // 滚动到今天所在的格子（垂直居中）——双 rAF 确保所有布局完成后再滚动
   const todayCell = host.querySelector('.cal-cell.today');
@@ -3257,38 +3337,200 @@ function renderCalendar() {
   }
 }
 
-function cellHTML(dt, byDate, out) {
+// 标签尺寸等级 → 重要度数值（越大越重要，用于月历格子内排序）
+const TAG_RANK = { 'tag-xl': 5, 'tag-lg': 4, 'tag-md': 3, 'tag-sm': 2, 'tag-xs': 1 };
+function tagRank(cls) { return TAG_RANK[cls] || 3; }
+
+function cellHTML(dt, byDate, custByDate, out) {
   const k = fmtDate(dt);
   const isToday = diffDays(dt, todayNoon()) === 0;
   const evs = byDate[k] || [];
-  let chips = '';
-  evs.slice(0, 4).forEach(it => {
-    // 查角色备注名（与即将到来视图相同逻辑）
-    const ev = it.ev, g = it.game;
-    let remarkSuffix = '';
-    if (ev._isChar && g.charNames) {
-      const cn = g.charNames[String(it.version.tenths) + '|' + ev.charIndex];
-      if (cn) remarkSuffix = `（${escapeHtml(cn)}）`;
-    } else if (ev._tease && g.charNames) {
-      const ci = ev.charIndex != null ? ev.charIndex : 0;
-      const offset = g.teaseVersionOffset || 1;
-      const targetTenths = findTargetTenthsForTease(g, it.version.tenths, ci, offset);
-      // teaser 只用目标版本的 charNames，不回退到源版本
-      const cn = targetTenths != null ? g.charNames[String(targetTenths) + '|' + ci] : null;
-      if (cn) remarkSuffix = `（${escapeHtml(cn)}）`;
-    }
-    // 版本更新/前瞻显示版本号
-    const verLabel = (ev.defKey === 'version_update' || ev.defKey === 'version_preview')
-      ? ' v' + it.version.label : '';
-    const sizeCls = getTagSizeClass(ev.defKey, ev.charIndex, g);
-    // 显示名：colDisplayNames（列级）> eventTitles（版本级）> 默认名
-    const chipName = (g.colDisplayNames && g.colDisplayNames[ev.historyKey]) || ev.title;
-    chips += `<div class="ev-chip ${sizeCls}" data-game="${it.game.id}" data-tenths="${it.version.tenths}" data-hk="${it.ev.historyKey}" title="${escapeHtml(it.game.name)} v${it.version.label} ${escapeHtml(chipName)}${remarkSuffix}">` +
-      `${gameIconHTML(it.game, 'chip-ico')}<span class="chip-dot" style="background:${eventColor(it.ev.defKey, it.ev.charIndex ?? it.ev.sub)}"></span>` +
-      `<span class="chip-txt">${escapeHtml(chipName)}${verLabel}${remarkSuffix}</span></div>`;
+  const custs = (custByDate && custByDate[k]) || [];
+  // 把普通事件与自定义事件统一成带「重要度」的列表，按重要程度降序排（重要的排上面）
+  const items = [];
+  evs.forEach(it => {
+    const cls = getTagSizeClass(it.ev.defKey, it.ev.charIndex, it.game);
+    items.push({ kind: 'ev', it, rank: tagRank(cls) });
   });
-  if (evs.length > 4) chips += `<div class="muted" style="font-size:10px">+${evs.length - 4} 更多</div>`;
-  return `<div class="cal-cell${out ? ' out' : ''}${isToday ? ' today' : ''}"><span class="dnum">${dt.getDate()}</span>${chips}</div>`;
+  custs.forEach(ce => { items.push({ kind: 'cust', ce, rank: 3 }); });
+  items.sort((a, b) => b.rank - a.rank);
+  const vis = items.slice(0, 3);   // 每格最多显示 3 个标签
+  const more = items.slice(3);     // 其余鼠标悬停在格子上时才展开
+  const chipHTML = (item) => {
+    if (item.kind === 'ev') {
+      const it = item.it, ev = it.ev, g = it.game;
+      let remarkSuffix = '';
+      if (ev._isChar && g.charNames) {
+        const cn = g.charNames[String(it.version.tenths) + '|' + ev.charIndex];
+        if (cn) remarkSuffix = `（${escapeHtml(cn)}）`;
+      } else if (ev._tease && g.charNames) {
+        const ci = ev.charIndex != null ? ev.charIndex : 0;
+        const offset = g.teaseVersionOffset || 1;
+        const targetTenths = findTargetTenthsForTease(g, it.version.tenths, ci, offset);
+        // teaser 只用目标版本的 charNames，不回退到源版本
+        const cn = targetTenths != null ? g.charNames[String(targetTenths) + '|' + ci] : null;
+        if (cn) remarkSuffix = `（${escapeHtml(cn)}）`;
+      }
+      const verLabel = (ev.defKey === 'version_update' || ev.defKey === 'version_preview')
+        ? ' v' + it.version.label : '';
+      const sizeCls = getTagSizeClass(ev.defKey, ev.charIndex, g);
+      const chipName = (g.colDisplayNames && g.colDisplayNames[ev.historyKey]) || ev.title;
+      return `<div class="ev-chip ${sizeCls}" data-game="${it.game.id}" data-tenths="${it.version.tenths}" data-hk="${it.ev.historyKey}" title="${escapeHtml(it.game.name)} v${it.version.label} ${escapeHtml(chipName)}${remarkSuffix}">` +
+        `${gameIconHTML(it.game, 'chip-ico')}<span class="chip-dot" style="background:${eventColor(it.ev.defKey, it.ev.charIndex ?? it.ev.sub)}"></span>` +
+        `<span class="chip-txt">${escapeHtml(chipName)}${verLabel}${remarkSuffix}</span></div>`;
+    } else {
+      const ce = item.ce;
+      const g = state.games.find(x => x.id === ce.gameId);
+      const gname = g ? g.name : '';
+      const note = ce.note ? '（' + ce.note + '）' : '';
+      return `<div class="ev-chip tag-md" data-cust-id="${ce.id}" title="${escapeAttr(gname + ' · ' + ce.name + note)}">` +
+        `${g ? gameIconHTML(g, 'chip-ico') : ''}<span class="chip-dot" style="background:${ce.color}"></span>` +
+        `<span class="chip-txt">${escapeHtml(ce.name + note)}</span></div>`;
+    }
+  };
+  const visHtml = vis.map(chipHTML).join('');
+  const moreHtml = more.map(chipHTML).join('');
+  const countHtml = more.length ? `<div class="cal-count">+${more.length} 更多</div>` : '';
+  return `<div class="cal-cell${out ? ' out' : ''}${isToday ? ' today' : ''}">` +
+    `<span class="dnum">${dt.getDate()}</span>` +
+    `<div class="cal-vis">${visHtml}</div>` +
+    countHtml +
+    `<div class="cal-more">${moreHtml}</div></div>`;
+}
+
+/* ----------------------------- 自定义事件（时间轴/月历，列表不显示） ----------------------------- */
+const CUST_COLORS = ['#6366f1', '#22c55e', '#f97316', '#06b6d4', '#eab308', '#ef4444', '#ec4899', '#8b5cf6'];
+let custSelColor = CUST_COLORS[0];
+
+// 右键删除标签的上下文菜单（懒创建）
+let _custCtx = null, _custCtxTag = null;
+function custCtxEl() {
+  if (_custCtx) return _custCtx;
+  _custCtx = document.createElement('div');
+  _custCtx.className = 'cust-ctx';
+  _custCtx.innerHTML = '<div class="cust-ctx-item" id="cust-ctx-del">🗑 删除此标签</div>';
+  document.body.appendChild(_custCtx);
+  _custCtx.addEventListener('click', (e) => {
+    if (e.target.id === 'cust-ctx-del' && _custCtxTag != null) {
+      const gid = document.getElementById('cust-game').value;
+      const arr = (state.userQuickTags || (state.userQuickTags = {}))[gid] || [];
+      const i = arr.indexOf(_custCtxTag);
+      if (i !== -1) { arr.splice(i, 1); if (!arr.length) delete state.userQuickTags[gid]; }
+      _custCtxTag = null; _custCtx.classList.remove('show');
+      _renderCustQuick();
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if (_custCtx && !_custCtx.contains(e.target) && !(e.target.closest && e.target.closest('.qt-tag'))) _custCtx.classList.remove('show');
+  });
+  return _custCtx;
+}
+
+function openCustomEventModal(editId) {
+  const editing = editId != null;
+  const ev = editing ? (state.userEvents || []).find(x => x.id === editId) : null;
+  const titleEl = document.getElementById('modal-title');
+  titleEl.textContent = editing ? '编辑自定义事件' : '添加自定义事件';
+  const body = document.getElementById('modal-body');
+  const gameOpts = state.games.map(g => `<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('');
+  const swatches = CUST_COLORS.map(c => `<span class="cust-color${c === custSelColor ? ' active' : ''}" data-c="${c}" style="background:${c}"></span>`).join('');
+  body.innerHTML =
+    `<div class="cust-form">` +
+      `<div class="field"><label>所属游戏</label><select id="cust-game">${gameOpts}</select></div>` +
+      `<div class="field"><label>事件名称</label><input type="text" id="cust-name" placeholder="如：官方直播、维护公告、前瞻特别节目…" autocomplete="off">` +
+        `<div class="quick-tags" id="cust-quick"></div></div>` +
+      `<div class="field"><label>日期</label><input type="date" id="cust-date"></div>` +
+      `<div class="field"><label>颜色</label><div class="cust-colors" id="cust-colors">${swatches}</div></div>` +
+      `<div class="field"><label>备注（可选）</label><textarea id="cust-note" placeholder="补充说明…"></textarea></div>` +
+      (editing ? `<div class="cust-del-wrap"><button type="button" class="danger" id="cust-del">删除此事件</button></div>` : '') +
+    `</div>`;
+
+  // 预填
+  const defGame = ev ? ev.gameId : (state.games.find(g => visibleGames[g.id] !== false) || state.games[0]).id;
+  document.getElementById('cust-game').value = defGame;
+  if (ev) {
+    document.getElementById('cust-name').value = ev.name || '';
+    document.getElementById('cust-date').value = fmtDate(ev.date);
+    document.getElementById('cust-note').value = ev.note || '';
+    custSelColor = ev.color || CUST_COLORS[0];
+  } else {
+    document.getElementById('cust-date').value = fmtDate(todayNoon());
+  }
+
+  // 颜色选择
+  body.querySelectorAll('.cust-color').forEach(el => {
+    el.onclick = () => {
+      custSelColor = el.dataset.c;
+      body.querySelectorAll('.cust-color').forEach(p => p.classList.remove('active'));
+      el.classList.add('active');
+    };
+  });
+
+  // 快捷标签渲染（统一列表 + 点击填充 + 右键删除）
+  function _renderCustQuick() {
+    const gid = document.getElementById('cust-game').value;
+    const tags = (state.userQuickTags || (state.userQuickTags = {}))[gid] || [];
+    const box = document.getElementById('cust-quick');
+    let html = '<span class="qt-label">快捷填充：</span>';
+    tags.forEach(t => { html += `<button type="button" class="qt-tag" data-name="${escapeAttr(t)}">${escapeHtml(t)}</button>`; });
+    html += '<button type="button" class="qt-add" id="cust-add-qt">+ 自定义标签</button>';
+    box.innerHTML = html;
+    box.querySelectorAll('.qt-tag').forEach(tag => {
+      tag.onclick = () => { document.getElementById('cust-name').value = tag.dataset.name; document.getElementById('cust-name').focus(); };
+      tag.oncontextmenu = (e) => {
+        e.preventDefault();
+        _custCtxTag = tag.dataset.name;
+        const m = custCtxEl();
+        m.style.top = e.clientY + 'px'; m.style.left = e.clientX + 'px'; m.classList.add('show');
+        return false;
+      };
+    });
+    const addBtn = document.getElementById('cust-add-qt');
+    if (addBtn) addBtn.onclick = () => {
+      const name = prompt('输入新标签名称：');
+      if (!name) return;
+      const n = name.trim(); if (!n) return;
+      const gid2 = document.getElementById('cust-game').value;
+      if (!state.userQuickTags) state.userQuickTags = {};
+      if (!state.userQuickTags[gid2]) state.userQuickTags[gid2] = [];
+      if (state.userQuickTags[gid2].indexOf(n) === -1) state.userQuickTags[gid2].push(n);
+      _renderCustQuick();
+    };
+  }
+  window._renderCustQuick = _renderCustQuick;
+  _renderCustQuick();
+
+  // 切换游戏时刷新快捷标签 + 重新绑定
+  document.getElementById('cust-game').onchange = _renderCustQuick;
+
+  // 保存 / 取消 / 删除
+  document.getElementById('modal-save').onclick = () => {
+    const gid = document.getElementById('cust-game').value;
+    const name = document.getElementById('cust-name').value.trim();
+    const dateStr = document.getElementById('cust-date').value;
+    const note = document.getElementById('cust-note').value.trim();
+    if (!name) { toast('请填写事件名称'); return; }
+    if (!dateStr) { toast('请选择日期'); return; }
+    if (editing) {
+      ev.name = name; ev.gameId = gid; ev.date = parseDate(dateStr); ev.color = custSelColor; ev.note = note;
+    } else {
+      if (!state.userEvents) state.userEvents = [];
+      state.userEvents.push({ id: uid(), gameId: gid, name, date: parseDate(dateStr), color: custSelColor, note });
+    }
+    Storage.save(state);
+    hideModal();
+    render();
+    toast(editing ? '已更新自定义事件' : '已添加自定义事件');
+  };
+  document.getElementById('modal-cancel').onclick = hideModal;
+  const delBtn = document.getElementById('cust-del');
+  if (delBtn) delBtn.onclick = () => {
+    if (confirm('确定删除这个自定义事件？')) {
+      state.userEvents = (state.userEvents || []).filter(x => x.id !== editId);
+      Storage.save(state); hideModal(); render(); toast('已删除自定义事件');
+    }
+  };
+  showModal();
 }
 
 /* ----------------------------- 弹窗：版本 / 事件编辑 ----------------------------- */
@@ -4087,6 +4329,7 @@ function bindToolbar() {
   bc.onclick = () => setView('calendar', bc, [bt, bl]);
   bl.onclick = () => setView('list', bl, [bt, bc]);
   document.getElementById('btn-add').onclick = () => openGameModal(null);
+  document.getElementById('btn-cust-event').onclick = () => openCustomEventModal(null);
   document.getElementById('file-input').onchange = (e) => { if (e.target.files[0]) importJSON(e.target.files[0]); e.target.value = ''; };
   document.getElementById('search').oninput = (e) => { searchQuery = e.target.value.trim(); render(); };
   document.getElementById('btn-settings').onclick = openSettings;

@@ -197,6 +197,12 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 .cal-cell.today { border-color: var(--today); box-shadow: 0 0 0 1px var(--today) inset; }
 .cal-cell .dnum { font-size: 12px; color: var(--text-soft); align-self: flex-end; }
 .cal-cell.today .dnum { color: var(--today); font-weight: 700; }
+/* 月历标签：最多显示 3 个，其余鼠标悬停格子时在文档流内展开 */
+.cal-vis { display: flex; flex-direction: column; gap: 3px; }
+.cal-more { display: none; flex-direction: column; gap: 3px; }
+.cal-cell:hover .cal-more { display: flex; }
+.cal-cell:hover .cal-count { display: none; }
+.cal-count { font-size: 10px; color: var(--text-soft); cursor: default; padding: 1px 2px; }
 .ev-chip {
   display: flex; align-items: center; gap: 5px; font-size: 11px;
   padding: 2px 5px; border-radius: 6px; background: var(--panel-2);
@@ -688,3 +694,62 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 .le-cell-changed, .le-cell-new {
   animation: le-cell-flash 1.2s ease-out;
 }
+
+/* ---------- 自定义事件（时间轴 / 月历） ---------- */
+#btn-cust-event { background: #fff; border: 0.5px solid #c7d2fe; color: #4f46e5; }
+#btn-cust-event:hover { background: #eef2ff; }
+
+/* 时间轴自定义标记：虚线竖线 + ◆ 标签（固定在下沿带） */
+.tl-cust-mark {
+  position: absolute; top: 67px; width: 3px; height: 44px; border-radius: 2px;
+  border: 1.5px dashed currentColor; background: transparent; cursor: pointer; z-index: 3;
+}
+.tl-cust-mark::before {
+  content: "◆"; position: absolute; top: -13px; left: 50%; transform: translateX(-50%);
+  font-size: 9px; color: currentColor;
+}
+.tl-cust-mark:hover { filter: brightness(1.1); }
+.tl-cust-tag {
+  position: absolute; top: 150px; transform: translateX(-50%);
+  font-size: 10px; line-height: 1; padding: 3px 6px; border-radius: 5px; white-space: nowrap;
+  background: #fff; border: 1px dashed currentColor; font-weight: 600; cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15,23,42,.12);
+}
+.tl-cust-tag:hover { filter: brightness(.96); }
+
+/* 月历 chip：虚线边框 + ◆ 前缀（颜色由内联 style 控制） */
+.ev-chip.cust-chip { border-style: dashed; background: #fff; }
+
+/* 自定义事件弹窗 */
+.cust-form { display: flex; flex-direction: column; gap: 12px; }
+.cust-form .field { margin: 0; }
+.cust-form textarea { resize: vertical; min-height: 48px; width: 100%; padding: 6px 8px; border: 0.5px solid var(--border, #d1d5db); border-radius: 6px; font-family: inherit; font-size: 13px; }
+.cust-form select, .cust-form input[type=text], .cust-form input[type=date] {
+  width: 100%; padding: 7px 9px; border: 0.5px solid var(--border, #d1d5db); border-radius: 6px; font-size: 13px; font-family: inherit;
+}
+.cust-colors { display: flex; gap: 7px; flex-wrap: wrap; }
+.cust-color { width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 2px solid #fff; box-shadow: 0 0 0 1px #d1d5db; }
+.cust-color.active { box-shadow: 0 0 0 2px #4f46e5; }
+.cust-del-wrap { margin-top: 2px; }
+.cust-del-wrap .danger { background: #fef2f2; border: 0.5px solid #fecaca; color: #dc2626; border-radius: 6px; padding: 6px 14px; font-size: 12px; cursor: pointer; }
+.cust-del-wrap .danger:hover { background: #fee2e2; }
+
+/* 快捷标签：统一列表（无预设/自定义之分） */
+.quick-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 7px; min-height: 28px; }
+.qt-label { font-size: 11px; color: #9ca3af; white-space: nowrap; }
+.qt-tag {
+  background: #f3f4f6; border: 0.5px solid #d1d5db; border-radius: 12px;
+  padding: 3px 11px; font-size: 11px; color: #4b5563; cursor: pointer; transition: all .12s; user-select: none;
+}
+.qt-tag:hover { background: #eef2ff; border-color: #a5b4fc; color: #4338ca; }
+.qt-add { background: none; border: 0.5px dashed #9ca3af; border-radius: 12px; padding: 3px 11px; font-size: 11px; color: #6b7280; cursor: pointer; }
+.qt-add:hover { border-color: #4f46e5; color: #4f46e5; background: #eef2ff; }
+
+/* 右键删除标签菜单（最隐蔽） */
+.cust-ctx {
+  position: fixed; display: none; background: #fff; border: 0.5px solid #e5e7eb;
+  border-radius: 7px; box-shadow: 0 8px 24px rgba(0,0,0,.2); z-index: 999; overflow: hidden; min-width: 130px;
+}
+.cust-ctx.show { display: block; }
+.cust-ctx-item { padding: 8px 14px; font-size: 12px; color: #b91c1c; cursor: pointer; }
+.cust-ctx-item:hover { background: #fef2f2; }
