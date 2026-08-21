@@ -1337,7 +1337,6 @@ const ICON_LIB_FALLBACK = [
   { file: 'icons/yuanshen.png', name: '原神' },
   { file: 'icons/starrail.png', name: '崩坏：星穹铁道' },
   { file: 'icons/zenless.png', name: '绝区零' },
-  { file: 'icons/bh3.png', name: '崩坏3' },
   { file: 'icons/wuthering.png', name: '鸣潮' },
   { file: 'icons/endfield.png', name: '终末地' }
 ];
