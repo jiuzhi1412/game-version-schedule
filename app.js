@@ -1354,7 +1354,11 @@ function gameIconHTML(game, cls) {
   return `<span class="${cls}" style="background:${ic.color || game.color}">${(ic.value || game.name[0])}</span>`;
 }
 
+let _lastRenderView = null;
+
 function render() {
+  const prevView = _lastRenderView;
+  _lastRenderView = viewMode;
   renderFilterBar();
   document.getElementById('view-timeline').classList.toggle('hidden', viewMode !== 'timeline');
   document.getElementById('view-calendar').classList.toggle('hidden', viewMode !== 'calendar');
@@ -1363,8 +1367,8 @@ function render() {
   if (viewMode === 'timeline') renderTimeline();
   else if (viewMode === 'calendar') renderCalendar();
   else renderList();
-  // 切到列表/时间轴时重置页面滚动位置（避免从月历切回时停留在中间）
-  if (viewMode !== 'calendar') window.scrollTo(0, 0);
+  // 仅从月历切走时滚顶（同视图内重渲染保持滚动位置不变）
+  if (prevView === 'calendar' && viewMode !== 'calendar') window.scrollTo(0, 0);
   Storage.save(state);
 }
 
