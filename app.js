@@ -2569,8 +2569,9 @@ function renderList() {
       `<div class="calendar-scroll"><table class="ver-table ${editMode ? 'le-table' : ''}"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
   });
   host.innerHTML = html;
-  // 编辑模式下绑定单元格点击事件
-  if (editMode) { bindListEditCells(); bindColumnDrag(); }
+  // 编辑模式下绑定单元格点击事件（只要有任一游戏在编辑模式就绑定）
+  const anyEditMode = state.listEditMode && Object.values(state.listEditMode).some(v => v);
+  if (anyEditMode) { bindListEditCells(); bindColumnDrag(); }
 }
 /** 切换指定游戏的列表编辑模式 */
 function toggleListEditMode(gameId) {
