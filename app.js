@@ -581,7 +581,7 @@ function applyRemoteState(remote) {
   if (typeof state.listCount !== 'number') state.listCount = 8;
   if (typeof state.listPast !== 'number') state.listPast = 2;
   if (typeof state.showLabels !== 'boolean') state.showLabels = true;
-  state.listEditMode = false; // 每次打开网页默认关闭编辑模式，不持久化
+  state.listEditMode = {}; // 每次打开网页默认关闭编辑模式（按游戏独立），不持久化
   if (typeof state.offsetOnlyConfirmed !== 'boolean') state.offsetOnlyConfirmed = false;
   // listColumnOrder: 自定义列顺序（空数组=使用默认顺序；非空时按此数组排列列）
   if (!Array.isArray(state.listColumnOrder)) state.listColumnOrder = [];
@@ -747,7 +747,7 @@ async function restoreFromFile() {
     if (typeof state.listCount !== 'number') state.listCount = 8;
   if (typeof state.listPast !== 'number') state.listPast = 2;
     if (typeof state.showLabels !== 'boolean') state.showLabels = true;
-    state.listEditMode = false; // 每次加载默认关闭编辑模式
+    state.listEditMode = {}; // 每次加载默认关闭编辑模式（按游戏独立）
   if (!Array.isArray(state.listColumnOrder)) state.listColumnOrder = [];
   if (!Array.isArray(state.listGroupOrder)) state.listGroupOrder = [];
   if (typeof state.listSubOrder !== 'object' || !state.listSubOrder) state.listSubOrder = {};
@@ -924,7 +924,7 @@ const USER_DEFAULT_STATE = {
     { "key": "version_preview", "name": "版本前瞻", "hidden": false, "offsets": [ 35 ] },
     { "key": "version_update", "name": "版本更新", "offsets": [ 0 ] }
   ],
-  "listEditMode": false,
+  "listEditMode": {},
   "listSubOrder": {
     "tease": [ "tease_0", "tease_1", "tease_0", "tease_1", "tease_0", "tease_1", "tease_0", "tease_1", "tease_0", "tease_1" ],
     "char__0": [ "char_banner_0", "char_preview_0", "char_pv_0", "char_banner_0", "char_preview_0", "char_pv_0", "char_banner_0", "char_preview_0", "char_pv_0", "char_banner_0", "char_preview_0", "char_pv_0", "char_banner_0", "char_preview_0", "char_pv_0" ],
@@ -999,8 +999,8 @@ async function init() {
   if (typeof state.listCount !== 'number') state.listCount = 8;
   if (typeof state.listPast !== 'number') state.listPast = 2;
   if (typeof state.showLabels !== 'boolean') state.showLabels = true;
-  state.listEditMode = false; // 每次加载默认关闭编辑模式
-  console.log('[GVS] 🔒 edit mode 已重置为关闭 (listEditMode=false)');
+  state.listEditMode = {}; // 每次加载默认关闭编辑模式（按游戏独立）
+  console.log('[GVS] 🔒 edit mode 已重置为关闭 (listEditMode={})');
   if (!state.customEvents || !Array.isArray(state.customEvents)) {
     state.customEvents = JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE));
   }
@@ -2297,17 +2297,17 @@ function renderList() {
   const host = document.getElementById('view-list');
   let html = '';
   const list = state.games.filter(g => visibleGames[g.id] !== false);
-  const editMode = !!state.listEditMode;
   if (!list.length) { host.innerHTML = '<p class="muted">暂无游戏</p>'; return; }
 
   // 编辑模式：表头改名入口（所有游戏共用）
-  const renameBtnHTML = (gId, key, kind) => editMode
+  const renameBtnHTML = (gId, key, kind) => (state.listEditMode && state.listEditMode[gId])
     ? `<button type="button" class="le-rename-btn" draggable="false" onmousedown="event.stopPropagation()" onclick="openColRenameEditor('${gId}','${escapeAttr(key)}','${kind}', this.closest('th'))" title="重命名此列">✏️</button>`
     : '';
 
   list.forEach(game => {
     // 角色身份 → 颜色序号（同名共享），用于备注标签按角色分配颜色
     const identityColors = buildIdentityColors(game);
+    const editMode = !!(state.listEditMode && state.listEditMode[game.id]);
     // 列表视图使用独立范围，不受"视图起始/结束"限制
     const lp = state.listPast || 2, lc = state.listCount || 8;
     const estCycle = (game.baseCycleDays || 42) * 2;
@@ -2553,13 +2553,13 @@ function renderList() {
     });
     const head = `<tr>${headRow1}</tr>${headRow2 ? '<tr>' + headRow2 + '</tr>' : ''}`;
     // 编辑模式切换 + 列设置按钮（仅编辑模式显示）
-    const editBtn = `<button class="vc-btn ${editMode ? 'le-btn-on' : ''}" onclick="toggleListEditMode()" style="margin-left:8px;${editMode ? 'background:var(--primary);color:#fff;border-color:var(--primary)' : ''}">${editMode ? '✏️ 修改中' : '✏️ 修改'}</button>`;
+    const editBtn = `<button class="vc-btn ${editMode ? 'le-btn-on' : ''}" onclick="toggleListEditMode('${game.id}')" style="margin-left:8px;${editMode ? 'background:var(--primary);color:#fff;border-color:var(--primary)' : ''}">${editMode ? '✏️ 修改中' : '✏️ 修改'}</button>`;
     const colBtn = editMode
       ? `<button class="vc-btn" onclick="openColSettings('${game.id}', this)" title="设置显示/隐藏的列">⚙️ 列</button>`
       : '';
     const hiddenCount = (game.hiddenEventKeys || []).length;
     const hiddenHint = !editMode && hiddenCount > 0
-      ? ` <span class="muted" style="cursor:pointer;font-size:11px;color:var(--danger);font-weight:600" onclick="toggleListEditMode();setTimeout(function(){openColSettings('${game.id}',document.querySelector('[data-game-id=&quot;${game.id}&quot;] .vc-btn[title*=列]'))},100)" title="点击进入修改模式恢复隐藏的${hiddenCount}列">🔒${hiddenCount}列已隐藏</span>`
+      ? ` <span class="muted" style="cursor:pointer;font-size:11px;color:var(--danger);font-weight:600" onclick="toggleListEditMode('${game.id}');setTimeout(function(){openColSettings('${game.id}',document.querySelector('[data-game-id=&quot;${game.id}&quot;] .vc-btn[title*=列]'))},100)" title="点击进入修改模式恢复隐藏的${hiddenCount}列">🔒${hiddenCount}列已隐藏</span>`
       : '';
     html += `<div class="list-game ${editMode ? 'le-mode' : ''}" data-game-id="${game.id}"><div class="list-game-title">${gameIconHTML(game, 'icon')} <b>${escapeHtml(game.name)}</b>` +
       `<span class="muted">基础 ${game.baseCycleDays}天 · 小版本上限 ${game.minorMax} · 显示过去 ${state.listPast || 2} / 未来 ${state.listCount || 8} 个版本</span>` +
@@ -2572,9 +2572,10 @@ function renderList() {
   // 编辑模式下绑定单元格点击事件
   if (editMode) { bindListEditCells(); bindColumnDrag(); }
 }
-/** 切换列表编辑模式 */
-function toggleListEditMode() {
-  state.listEditMode = !state.listEditMode;
+/** 切换指定游戏的列表编辑模式 */
+function toggleListEditMode(gameId) {
+  if (!state.listEditMode) state.listEditMode = {};
+  state.listEditMode[gameId] = !state.listEditMode[gameId];
   saveLocalOnly();
 }
 
@@ -4191,7 +4192,7 @@ function importJSON(file) {
       if (typeof state.dayW !== 'number') state.dayW = 4;
       if (typeof state.listCount !== 'number') state.listCount = 8;
   if (typeof state.listPast !== 'number') state.listPast = 2;
-      state.listEditMode = false; // 导入后默认关闭编辑模式
+      state.listEditMode = {}; // 导入后默认关闭编辑模式（按游戏独立）
       visibleGames = state.visibleGames;
       saveAndRender(); toast('导入成功');
     } catch (e) { toast('导入失败：' + e.message); }
@@ -4209,7 +4210,7 @@ function restoreDefaults() {
   if (typeof state.listCount !== 'number') state.listCount = 8;
   if (typeof state.listPast !== 'number') state.listPast = 2;
   if (typeof state.showLabels !== 'boolean') state.showLabels = true;
-  state.listEditMode = false;
+  state.listEditMode = {};
   if (!state.customEvents || !Array.isArray(state.customEvents)) state.customEvents = JSON.parse(JSON.stringify(EVENT_DEFS_TEMPLATE));
   if (!state.charSubOrder || !state.charSubOrder.length) state.charSubOrder = ['char_banner', 'char_preview', 'char_pv'];
   if (!state.charGroupOrder || !state.charGroupOrder.length) state.charGroupOrder = [0, 1, 2, 3, 4, 5];
