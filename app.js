@@ -1298,6 +1298,29 @@ function resolveInherited(game, versions) {
     if (onlyConfirmed) stats.empty++;
   }));
   console.debug(`[GVS] 📊 ${game.name} 偏移来源统计：确认${stats.confirmed} 绑定${stats.bound} 沿用${stats.inherited} 基准${stats.base} 默认${stats.default}` + (onlyConfirmed ? ` 留空${stats.empty}` : ''));
+
+  // ★ 最终 pass：还原用户确认的绝对日期（verAbsDates）
+  // verEventOffsets 存的是相对偏移，当某版本 updateDate 被修改后，
+  // 后续版本级联偏移会导致「已确认」事件的绝对日期也跟着漂移。
+  // verAbsDates 存储用户确认时的绝对日期，此处强制覆盖，确保绿点=不可变。
+  if (!game.verAbsDates) game.verAbsDates = {};
+  let backfilled = 0;
+  versions.forEach(v => v.events.forEach(ev => {
+    const absKey = String(v.tenths) + '|' + ev.historyKey;
+    const absStr = game.verAbsDates[absKey];
+    if (absStr) {
+      // 有绝对日期 → 强制还原（不可变）
+      ev.date = parseDate(absStr);
+      ev.offset = diffDays(ev.date, v.updateDate);
+      ev.source = 'confirmed';
+      ev.noRef = false;
+    } else if (offsetIsConfirmed(game, ev.historyKey, v.tenths)) {
+      // 有确认偏移但缺绝对日期 → 回填（旧数据兼容：首次加载时从当前正确值补录）
+      game.verAbsDates[absKey] = fmtDate(ev.date);
+      backfilled++;
+    }
+  }));
+  if (backfilled > 0) console.debug(`[GVS] 📦 ${game.name} 回填 ${backfilled} 个绝对日期到 verAbsDates（旧数据兼容）`);
 }
 
 function collectEvents() {
@@ -2098,9 +2121,13 @@ function bindTimelineEvents() {
             const upd = v ? v.updateDate : null;
             const off = upd ? diffDays(newDate, upd) : 0;
             game.verEventOffsets[tenths + '|' + hk] = off;
+            // ★ 同时存储绝对日期
+            if (!game.verAbsDates) game.verAbsDates = {};
+            game.verAbsDates[tenths + '|' + hk] = val;
             anyChange = true;
           } else {
             delete game.verEventOffsets[tenths + '|' + hk];
+            if (game.verAbsDates) delete game.verAbsDates[tenths + '|' + hk];
             anyChange = true;
           }
         }
@@ -2910,7 +2937,7 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
       ${bindLabel ? `<div class="muted" style="font-size:11px;margin-bottom:8px">${escapeHtml(bindLabel)}</div>` : ''}
       <div class="field">
         <label>事件日期${binding ? '（修改将覆盖自动绑定）' : '（默认版本更新日期）'}</label>
-        <input type="date" id="le-date" value="${escapeAttr(displayDate)}" data-dirty="1" ${isHidden ? 'disabled' : ''}>
+        <input type="date" id="le-date" value="${escapeAttr(displayDate)}" onchange="this.dataset.dirty='1'" ${isHidden ? 'disabled' : ''}>
         ${binding ? '<div class="muted" style="font-size:11px;margin-top:4px">💡 留空则继续跟随源事件；填写后以你填的为准</div>' : ''}
       </div>
       ${isChar ? `
@@ -3115,11 +3142,15 @@ window.saveListEvEdit = function(gameId, tenths, hk) {
           const absOff = diffDays(newDate, v.updateDate);
           if (!game.verEventOffsets) game.verEventOffsets = {};
           game.verEventOffsets[tenths + '|' + hk] = absOff;
+          // ★ 同时存储绝对日期，确保后续版本 updateDate 变动时此确认日期不漂移
+          if (!game.verAbsDates) game.verAbsDates = {};
+          game.verAbsDates[tenths + '|' + hk] = dateStr;
         }
       }
     } else {
       // 用户清空了日期 → 删除该版本该事件的确认偏移（回归自动计算）
       if (game.verEventOffsets) delete game.verEventOffsets[tenths + '|' + hk];
+      if (game.verAbsDates) delete game.verAbsDates[tenths + '|' + hk];
     }
   }
   closeListCellEditor();
@@ -3151,6 +3182,10 @@ window.saveListTeaseEdit = function(gameId, targetTenths, charIndex, rowTenths) 
       const offKey = String(targetTenths) + '|' + teaseHk;
       delete game.verEventOffsets[offKey];
     }
+    if (game.verAbsDates) {
+      delete game.verAbsDates[String(targetTenths) + '|' + teaseHk];
+      delete game.verAbsDates[String(rowTenths) + '|' + teaseHk];
+    }
     const cnKey = String(targetTenths) + '|' + charIndex;
     if (game.charNames) delete game.charNames[cnKey];
     closeListCellEditor();
@@ -3178,7 +3213,13 @@ window.saveListTeaseEdit = function(gameId, targetTenths, charIndex, rowTenths) 
     if (rowVer) {
       // 偏移相对行版本（src）更新日，makeVersion 用同一规则读这个 key
       game.verEventOffsets[String(rowTenths) + '|' + teaseHk] = diffDays(parseDate(dateStr), rowVer.updateDate);
+      // ★ 同时存储绝对日期
+      if (!game.verAbsDates) game.verAbsDates = {};
+      game.verAbsDates[String(rowTenths) + '|' + teaseHk] = dateStr;
     }
+  } else {
+    // 清空日期时也清除绝对日期
+    if (game.verAbsDates) delete game.verAbsDates[String(rowTenths) + '|' + teaseHk];
   }
   // 一次性数据迁移：旧版 teaser 存到 target 版本（如 '71|char_tease_X'），新版按 src 存（'70|...'）
   // 把每个 src 版本对应的 target 版本（旧逻辑位置）的 teaser 数据搬到 src
@@ -3603,6 +3644,7 @@ function openVersionModal(gameId, tenths, focusHk) {
       if (!val) {
         // 清空日期 = 删除该版本该事件的确认偏移（回归自动计算）
         delete game.verEventOffsets[String(tenths) + '|' + hk];
+        if (game.verAbsDates) delete game.verAbsDates[String(tenths) + '|' + hk];
         saveAndRender(); openVersionModal(gameId, tenths, focusHk);
         toast('已清除该日期，偏移回归自动计算');
         return;
@@ -3611,6 +3653,9 @@ function openVersionModal(gameId, tenths, focusHk) {
       const upd = parseDate(document.getElementById('m-update').value);
       const off = diffDays(newDate, upd);
       game.verEventOffsets[String(tenths) + '|' + hk] = off; // 存为「你填的」确认日期
+      // ★ 同时存储绝对日期
+      if (!game.verAbsDates) game.verAbsDates = {};
+      game.verAbsDates[String(tenths) + '|' + hk] = val;
       saveAndRender(); openVersionModal(gameId, tenths, focusHk);
       toast(`已保存你填的日期（偏移 ${off >= 0 ? '+' : ''}${off} 天），参与后续自动沿用`);
     };
@@ -3845,6 +3890,9 @@ function setupIconSync(body, game, ic) {
     if (game && game.verEventOffsets) {
       Object.keys(game.verEventOffsets).forEach(k => { if (k.endsWith('|' + hk)) delete game.verEventOffsets[k]; });
     }
+    if (game && game.verAbsDates) {
+      Object.keys(game.verAbsDates).forEach(k => { if (k.endsWith('|' + hk)) delete game.verAbsDates[k]; });
+    }
     saveAndRender(); openGamePanel(_gpGameId); toast('已清除该事件所有已填日期');
   });
 
@@ -3930,7 +3978,7 @@ function saveGamePanel(game) {
       icon: { type: icType.value, value: ival, color: colorInp.value },
       baseCycleDays: cycle, minorMax, charCount, anchorTenths, anchorDate,
       eventHistory: {}, baseOffsets, eventTitles: {}, versionDurations: {},
-      verNotes: {}, verEventOffsets: {}, verUpdateDates: {}, hiddenEventKeys: [], verHiddenEvents: {},
+      verNotes: {}, verEventOffsets: {}, verAbsDates: {}, verUpdateDates: {}, hiddenEventKeys: [], verHiddenEvents: {},
       minorMaxBreakpoints
     };
     state.games.push(ng); visibleGames[ng.id] = true; state.visibleGames = visibleGames;
@@ -4194,6 +4242,8 @@ function importJSON(file) {
       state = data;
       if (!state.visibleGames) { state.visibleGames = {}; state.games.forEach(g => state.visibleGames[g.id] = true); }
       state.games.forEach(migrateGame);
+      // JSON round-trip 后 Date 全部退化为字符串，必须规整回 Date 对象
+      normalizeDates(state);
       if (typeof state.dayW !== 'number') state.dayW = 4;
       if (typeof state.listCount !== 'number') state.listCount = 8;
   if (typeof state.listPast !== 'number') state.listPast = 2;
@@ -4203,6 +4253,21 @@ function importJSON(file) {
     } catch (e) { toast('导入失败：' + e.message); }
   };
   r.readAsText(file);
+}
+
+/** 归一化 state 中所有可能因 JSON 序列化而退化为字符串的 Date 字段 */
+function normalizeDates(st) {
+  if (!st) return;
+  // 自定义事件日期
+  if (Array.isArray(st.userEvents)) st.userEvents.forEach(ce => { if (ce && ce.date != null) ce.date = asDate(ce.date); });
+  // 每个游戏的日期字段
+  if (Array.isArray(st.games)) st.games.forEach(g => {
+    if (!g) return;
+    // verUpdateDates: { tenthsStr: 'YYYY-MM-DD' } → 保持字符串即可（makeVersion 内部 parseDate）
+    // verAbsDates: 同上，保持字符串
+    // anchorDate: 字符串即可（genGameVersions 内 parseDate）
+    // 以上字段在 genGameVersions/makeVersion 中都走 parseDate()，不需要转 Date 对象
+  });
 }
 
 // 恢复为代码里固化的默认数据（USER_DEFAULT_STATE）：覆盖本设备当前所有数据
