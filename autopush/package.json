@@ -1,0 +1,13 @@
+{
+  "name": "gvs-autopush",
+  "version": "1.0.0",
+  "private": true,
+  "description": "本地自动同步工具：定时检测 data/overrides.json 改动并自动推送到 GitHub Pages",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "electron": "^31.0.0"
+  }
+}

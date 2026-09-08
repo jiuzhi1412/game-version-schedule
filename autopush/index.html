@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>游戏日程自动同步</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, "Microsoft YaHei", sans-serif; margin: 0; padding: 16px; background: #1e1e2e; color: #e6e6e6; font-size: 13px; }
+    h1 { font-size: 16px; margin: 0 0 12px; }
+    label { display: block; margin: 10px 0 4px; color: #b0b0c0; }
+    input { width: 100%; padding: 7px 9px; border: 1px solid #3a3a4a; border-radius: 6px; background: #2a2a3a; color: #e6e6e6; }
+    button { margin-top: 14px; padding: 8px 14px; border: 0; border-radius: 6px; background: #6c5ce7; color: #fff; cursor: pointer; }
+    button.ghost { background: #3a3a4a; margin-left: 8px; }
+    #log { margin-top: 16px; height: 230px; overflow-y: auto; background: #15151f; border: 1px solid #3a3a4a; border-radius: 6px; padding: 8px; font-family: Consolas, monospace; font-size: 12px; white-space: pre-wrap; }
+    .hint { color: #8a8a9a; font-size: 12px; margin-top: 6px; line-height: 1.5; }
+    .warn { color: #ffb86c; }
+  </style>
+</head>
+<body>
+  <h1>🎮 游戏日程自动同步</h1>
+  <label>仓库路径（含 data/ 的 game-version-schedule 目录）</label>
+  <input id="repo" placeholder="D:/path/to/game-version-schedule">
+  <label>检测间隔（秒，最小 10）</label>
+  <input id="interval" type="number" min="10" value="60">
+  <label>GitHub PAT（仅存本机，不会进仓库）</label>
+  <input id="pat" type="password" placeholder="github_pat_xxx">
+  <div>
+    <button id="save">保存并应用</button>
+    <button id="sync" class="ghost">立即同步一次</button>
+  </div>
+  <div class="hint">保存后工具会按间隔自动检测 <b>data/overrides.json</b> 的改动，有改动才提交并推送，无改动不操作。PAT 请使用细粒度 token，仅授予该仓库的 contents 写权限。</div>
+  <div id="log"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const logBox = $('log');
+    window.api.onLog((m) => { logBox.textContent += m + '\n'; logBox.scrollTop = logBox.scrollHeight; });
+    window.api.getState().then(({ config, logs }) => {
+      $('repo').value = config.repo || '';
+      $('interval').value = config.interval || 60;
+      $('pat').value = config.pat || '';
+      logs.forEach((m) => { logBox.textContent += m + '\n'; });
+      logBox.scrollTop = logBox.scrollHeight;
+    });
+    $('save').onclick = () => {
+      const cfg = { repo: $('repo').value.trim(), interval: Number($('interval').value) || 60, pat: $('pat').value.trim() };
+      if (!cfg.repo || !cfg.pat) { alert('请填写仓库路径和 PAT'); return; }
+      window.api.saveConfig(cfg).then(() => alert('已保存，定时器已重启'));
+    };
+    $('sync').onclick = () => window.api.syncNow();
+  </script>
+</body>
+</html>

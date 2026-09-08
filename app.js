@@ -969,6 +969,54 @@ function migrateGame(g) {
   migrateTeaserOffsetsToSrc(g);
 }
 
+/* ----------------------------- 公开基线覆盖（data/overrides.json） -----------------------------
+ * 把用户的「内容编辑」固化成随仓库部署的静态文件。任何人（不登录、新设备）打开网页即一致。
+ * 仅含内容编辑：自定义事件 / 确认日期 / 偏移 / 备注 / 隐藏事件。不含 UI 视图偏好（缩放、列数等）。 */
+const OVERRIDES_URL = 'data/overrides.json';
+const OV_FIELDS = ['userEvents', 'userQuickTags', 'verEventOffsets', 'verAbsDates', 'verUpdateDates', 'verNotes', 'hiddenEventKeys', 'verHiddenEvents'];
+
+/** 从当前 state 提取仅含用户编辑覆盖的字段（用于发布到 overrides.json） */
+function extractOverrides(st) {
+  const ov = {};
+  OV_FIELDS.forEach(k => {
+    const v = st[k];
+    if (v === undefined || v === null) return;
+    if (Array.isArray(v) && v.length === 0) return;
+    if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) return;
+    ov[k] = JSON.parse(JSON.stringify(v));
+  });
+  // userEvents 里可能含 Date 对象，转成 YYYY-MM-DD 字符串方便静态存储
+  if (Array.isArray(ov.userEvents)) ov.userEvents.forEach(e => { if (e && e.date instanceof Date) e.date = e.date.toISOString().slice(0, 10); });
+  return ov;
+}
+
+/** 把公开基线合并进 state：补全语义——仅在本机缺失时才填充，绝不覆盖本机已有编辑 */
+function applyOverrides(st, ov) {
+  if (!ov || typeof ov !== 'object') return;
+  OV_FIELDS.forEach(k => {
+    if (ov[k] === undefined) return;
+    const cur = st[k];
+    const curEmpty = cur === undefined || cur === null
+      || (Array.isArray(cur) && cur.length === 0)
+      || (typeof cur === 'object' && !Array.isArray(cur) && Object.keys(cur).length === 0);
+    if (curEmpty) st[k] = JSON.parse(JSON.stringify(ov[k]));
+  });
+}
+
+/** 启动时拉取公开基线并合并（失败静默降级，纯本地 / 离线不受影响） */
+async function loadOverridesInto(st) {
+  try {
+    const r = await fetch(OVERRIDES_URL, { cache: 'no-store' });
+    if (!r.ok) return;
+    const ov = await r.json();
+    if (ov && typeof ov === 'object') {
+      applyOverrides(st, ov);
+      normalizeDates(st); // overrides 里的 Date 字段可能是字符串，规整回 Date
+      console.log('[GVS] 🌐 已合并公开基线 overrides.json');
+    }
+  } catch (e) { /* file:// 或离线时静默降级 */ }
+}
+
 async function init() {
   // 优先从本机文件恢复（数据在磁盘上，清空浏览器记录也不丢）
   let loaded = null;
@@ -1036,6 +1084,8 @@ async function init() {
     }
   });
   if (changed) { Storage.save(state); persistToFile(); }
+  // 合并公开基线（data/overrides.json）：让任何人不登录、新设备打开即与我的编辑一致
+  await loadOverridesInto(state);
   state.games.forEach(migrateGame);
   visibleGames = state.visibleGames;
   render();
@@ -3107,8 +3157,6 @@ window.saveListEvEdit = function(gameId, tenths, hk) {
 
   const dateInput = document.getElementById('le-date');
   const dateStr = dateInput ? dateInput.value : '';
-  // ⚠️ 只有用户实际改过日期输入框才写 verEventOffsets；预填值（确认/绑定/继承）不动，避免调别的偏移时被误删/误升级
-  const dateDirty = !!(dateInput && dateInput.dataset.dirty === '1');
   // 角色事件：保存到 charNames（本版本该角色通用）；普通事件：保存到 eventTitles
   const charNameInput = document.getElementById('le-char-name');
   if (charNameInput) {
@@ -3129,29 +3177,26 @@ window.saveListEvEdit = function(gameId, tenths, hk) {
     if (titleVal) game.eventTitles[tkey] = titleVal;
     else delete game.eventTitles[tkey];
   }
-  // 保存日期偏移（逐版本覆盖，存入 verEventOffsets）——仅当用户实际改过日期
-  if (dateDirty) {
-    if (dateStr) {
-      const v = listGameVersions(game).find(v => v.tenths === tenths);
-      if (v) {
-        const ev = v.events.find(e => e.historyKey === hk);
-        if (ev) {
-          const newDate = parseDate(dateStr);
-          // 存储绝对偏移量（相对版本更新日期）
-          // eventOffset() 返回值直接用于 addDays(updateDate, off)，所以必须存绝对偏移
-          const absOff = diffDays(newDate, v.updateDate);
-          if (!game.verEventOffsets) game.verEventOffsets = {};
-          game.verEventOffsets[tenths + '|' + hk] = absOff;
-          // ★ 同时存储绝对日期，确保后续版本 updateDate 变动时此确认日期不漂移
-          if (!game.verAbsDates) game.verAbsDates = {};
-          game.verAbsDates[tenths + '|' + hk] = dateStr;
-        }
-      }
+  // 保存日期（逐版本覆盖）——有日期值即写入确认；清空则删除回归自动计算
+  // 注意：不再要求 dateDirty，因为用户可能打开编辑器后未改值直接点保存（意图=确认当前日期）
+  if (dateStr) {
+    const v = listGameVersions(game).find(v => v.tenths === tenths);
+    if (v) {
+      const newDate = parseDate(dateStr);
+      // 存储绝对偏移量（相对版本更新日期）
+      const absOff = diffDays(newDate, v.updateDate);
+      if (!game.verEventOffsets) game.verEventOffsets = {};
+      game.verEventOffsets[tenths + '|' + hk] = absOff;
+      // ★ 同时存储绝对日期，确保后续版本 updateDate 变动时此确认日期不漂移
+      if (!game.verAbsDates) game.verAbsDates = {};
+      game.verAbsDates[tenths + '|' + hk] = dateStr;
     } else {
-      // 用户清空了日期 → 删除该版本该事件的确认偏移（回归自动计算）
-      if (game.verEventOffsets) delete game.verEventOffsets[tenths + '|' + hk];
-      if (game.verAbsDates) delete game.verAbsDates[tenths + '|' + hk];
+      console.warn('[GVS] saveListEvEdit: 版本 tenths=' + tenths + ' 未找到，确认日期未写入');
     }
+  } else {
+    // 用户清空了日期 → 删除该版本该事件的确认偏移（回归自动计算）
+    if (game.verEventOffsets) delete game.verEventOffsets[tenths + '|' + hk];
+    if (game.verAbsDates) delete game.verAbsDates[tenths + '|' + hk];
   }
   closeListCellEditor();
   saveAndRender();
@@ -4233,6 +4278,54 @@ function exportJSON() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'game-version-schedule.json'; a.click();
   toast('已导出 JSON');
 }
+/** 把当前「内容编辑」导出为公开基线 overrides.json（复制到剪贴板 + 下载），交由助手写入仓库部署 */
+function exportOverrides() {
+  const ov = extractOverrides(state);
+  const json = JSON.stringify(ov, null, 2);
+  try { if (navigator.clipboard) navigator.clipboard.writeText(json); } catch (e) {}
+  const blob = new Blob([json], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'overrides.json'; a.click();
+  toast('已生成「公开基线」overrides.json（已复制并下载）。把它发给我，我写入仓库 data/overrides.json 并提交部署，所有人即看到你的编辑。');
+}
+function downloadText(text, name) {
+  const blob = new Blob([text], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+}
+/** 把编辑写回本机仓库 data/overrides.json（File System Access API），失败则退化为下载 */
+async function saveToLocalRepo() {
+  const ov = extractOverrides(state);
+  const json = JSON.stringify(ov, null, 2);
+  if (typeof window.showDirectoryPicker !== 'function') {
+    downloadText(json, 'overrides.json');
+    toast('当前环境不支持一键写入（需 https 或 localhost）。已下载 overrides.json，请手动覆盖到仓库 data/overrides.json');
+    return;
+  }
+  try {
+    let dir = await idbGet('repoDirHandle');
+    try {
+      if (dir && typeof dir.requestPermission === 'function') {
+        const p = await dir.requestPermission({ mode: 'readwrite' });
+        if (p !== 'granted') dir = await window.showDirectoryPicker();
+      } else {
+        dir = await window.showDirectoryPicker();
+      }
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+      dir = await window.showDirectoryPicker();
+    }
+    await idbSet('repoDirHandle', dir);
+    const fh = await dir.getFileHandle('data/overrides.json', { create: true });
+    const w = await fh.createWritable();
+    await w.write(json);
+    await w.close();
+    toast('已写入本机仓库 data/overrides.json，本地同步工具将自动推送到网页');
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    console.warn('saveToLocalRepo fail', e);
+    downloadText(json, 'overrides.json');
+    toast('写入本机文件失败，已改为下载，请手动放到仓库 data/ 后交给同步工具');
+  }
+}
 function importJSON(file) {
   const r = new FileReader();
   r.onload = () => {
@@ -4415,6 +4508,8 @@ function bindToolbar() {
       const act = m.dataset.act;
       if (act === 'export') exportJSON();
       else if (act === 'import') document.getElementById('file-input').click();
+      else if (act === 'puboverrides') exportOverrides();
+      else if (act === 'saverepo') saveToLocalRepo();
       else if (act === 'backup') { curSettingsTab = 's-basic'; openSettings(); }
     };
   });
