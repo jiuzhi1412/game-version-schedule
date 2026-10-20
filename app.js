@@ -837,7 +837,7 @@ const USER_DEFAULT_STATE = {
       "baseCycleDays": 42,
       "verUpdateDates": { "30": "2026-06-17", "31": "2026-07-29", "32": "2026-09-09" },
       "_teaserMigrated": true,
-      "colDisplayNames": { "char_pv_0": "PV / EP", "char_pv_1": "PV / EP", "char_banner_0": "卡池", "char_banner_1": "卡池", "char_preview_0": "角色展示" },
+      "colDisplayNames": { "char_pv_0": "PV / EP", "char_pv_1": "PV / EP", "char_banner_0": "卡池", "char_banner_1": "卡池", "char_preview_0": "角色展示", "char_preview_1": "角色展示" },
       "hiddenEventKeys": [],
       "verEventOffsets": {
         "30|char_pv_0": -1, "30|char_pv_1": 19, "31|char_pv_0": -2, "31|char_pv_1": 19, "30|char_tease_0": 3, "30|char_tease_1": 3, "31|char_tease_0": 9, "31|char_tease_1": 9,
@@ -1244,8 +1244,16 @@ function genGameVersions(game, optRangeStart, optRangeEnd) {
           ? '_' + (def.charIndex != null ? def.charIndex : idx) : '');
         const off = eventOffset(game, hk, defOff, t);
         const name = def.name + (def.sub ? def.sub[idx] : '');
+        // 默认标题：角色类事件优先跟随「列表表头」的自定义列名（如绝区零把 PV 列改名为「PV / EP」，
+        // 弹窗/提示里的标题也应叫「PV / EP」，而不是模板硬编码的「PV·角色一」）。
+        // 仅当列名与类型名不同（= 用户确实重命名过）才采用，避免「卡池/PV」这类同名列丢掉角色区分。
+        let defTitle = name;
+        if (def._isChar && def.charIndex != null) {
+          const head = listHeadName(game, hk);
+          if (head && head !== def.name) defTitle = head;
+        }
         const custom = game.eventTitles && game.eventTitles[evTitleKey(t, hk)];
-        const title = custom || name;
+        const title = custom || defTitle;
         // 该版本是否隐藏此事件（per-version 隐藏 或 列级隐藏）
         const hidden = !!(game.verHiddenEvents && game.verHiddenEvents[t + '|' + hk]) || !!def._hidden;
         events.push({
@@ -3011,7 +3019,8 @@ function openListCellEditor(gameId, tenths, cellType, hk, cellEl) {
     // 当前日期（有值显示值；无值时默认版本更新日期，方便用户从该版本当天开始选）
     const displayDate = (ev.date && !ev.noRef) ? fmtDate(ev.date) : fmtDate(v.updateDate);
     editor.innerHTML = `
-      <div class="le-editor-title"><span class="chip-dot" style="background:${eventColor(ev.defKey, ev.charIndex ?? ev.sub ?? 0)};display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle"></span> ${escapeHtml(ev.name)} — 版本 ${escapeHtml(v.label)}</div>
+      <div class="le-editor-title"><span class="chip-dot" style="background:${eventColor(ev.defKey, ev.charIndex ?? ev.sub ?? 0)};display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle"></span> ${escapeHtml(ev.title)} — 版本 ${escapeHtml(v.label)}</div>
+      ${isChar && currentCharName ? `<div class="muted" style="font-size:11px;margin-bottom:8px">👤 本版本角色：<b style="color:#7c3aed">${escapeHtml(currentCharName)}</b></div>` : ''}
       ${bindLabel ? `<div class="muted" style="font-size:11px;margin-bottom:8px">${escapeHtml(bindLabel)}</div>` : ''}
       <div class="field">
         <label>事件日期${binding ? '（修改将覆盖自动绑定）' : '（默认版本更新日期）'}</label>
