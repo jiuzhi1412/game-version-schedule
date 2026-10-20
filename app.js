@@ -963,10 +963,34 @@ function migrateGame(g) {
   if (!g.hiddenEventKeys) g.hiddenEventKeys = [];
   if (!g.verHiddenEvents) g.verHiddenEvents = {};
   if (!g.charNames) g.charNames = {}; // key: "tenths|charIndex" → 角色名，如 "70|0": "奥黛塔"
-  if (!g.colDisplayNames) g.colDisplayNames = {}; // 表头自定义名覆盖：key=groupId 或 colId → 显示名（独立于备注）
+  // 标签名拆分（旧数据 colDisplayNames 曾同时承载「时间轴标签名」与「列表表头名」，导致改一处两处一起变）：
+  //   tlTagNames    —— 时间轴/月历 事件标签名（key = historyKey）
+  //   listHeadNames —— 列表表头 大标签/小列名（key = groupId 或 colId）
+  // 首次迁移把旧值同时复制到两边，保证现有显示完全不变，之后各自独立演化。
+  if (!g.colDisplayNames) g.colDisplayNames = {};
+  const _legacyNames = g.colDisplayNames;
+  if (!g.tlTagNames) g.tlTagNames = Object.assign({}, _legacyNames);
+  if (!g.listHeadNames) g.listHeadNames = Object.assign({}, _legacyNames);
   if (typeof g.charCount !== 'number') g.charCount = 2;
   // 数据迁移：teaser offset 从旧 key（target 版本）搬到新 key（src 版本）
   migrateTeaserOffsetsToSrc(g);
+}
+
+/** 时间轴/月历 事件标签名（与列表表头 colDisplayNames 完全独立，改这里不会影响列表表头）
+ *  - tlTagNames 里有该 key（含空串＝用户明确清空，回默认名）→ 用它
+ *  - 否则回退 colDisplayNames（兼容旧数据：历史上两者共用同一字段）
+ */
+function tlTagName(g, hk) {
+  if (!g || !hk) return '';
+  if (g.tlTagNames && Object.prototype.hasOwnProperty.call(g.tlTagNames, hk)) return g.tlTagNames[hk] || '';
+  return (g.colDisplayNames && g.colDisplayNames[hk]) || '';
+}
+
+/** 列表表头显示名（大标签 = groupId，小列名 = colId），与时间轴 tlTagNames 完全独立 */
+function listHeadName(g, key) {
+  if (!g || !key) return '';
+  if (g.listHeadNames && Object.prototype.hasOwnProperty.call(g.listHeadNames, key)) return g.listHeadNames[key] || '';
+  return (g.colDisplayNames && g.colDisplayNames[key]) || '';
 }
 
 /* ----------------------------- 公开基线覆盖（data/overrides.json） -----------------------------
@@ -1228,7 +1252,7 @@ function genGameVersions(game, optRangeStart, optRangeEnd) {
           def, defKey: def.key, historyKey: hk, sub: def.offsets.length > 1 ? idx : null,
           charIndex: def.charIndex != null ? def.charIndex : null,
           _isChar: !!def._isChar, _tease: !!def._tease,
-          name, title, date: addDays(updateDate, off), offset: off, hidden
+          name, title, customTitle: custom || '', date: addDays(updateDate, off), offset: off, hidden
         });
       });
     });
@@ -1581,8 +1605,8 @@ function timelineSidebarHTML() {
     const soon = cd >= 0 && cd <= (state.leadDays || 3);
     const ev = it.ev;
     const g = it.game;
-    // 显示名优先级（与时间轴 L1434 一致）：colDisplayNames(列级标签名) > ev.title(版本级自定义标题) > 默认名
-    let displayName = (g.colDisplayNames && g.colDisplayNames[ev.historyKey]) || ev.title || ev.name;
+    // 显示名优先级（与时间轴一致）：tlTagNames(时间轴/月历标签名) > ev.title(版本级自定义标题) > 默认名
+    let displayName = tlTagName(g, ev.historyKey) || ev.title || ev.name;
     let remarkSuffix = '';
     // 角色备注名作为后缀（不替换主标题，仅追加）
     if (ev._isChar && g.charNames) {
@@ -1792,19 +1816,22 @@ function renderTimeline() {
           // 版本更新/前瞻显示版本号
           const verLabel = (ev.defKey === 'version_update' || ev.defKey === 'version_preview')
             ? ' v' + v.label : '';
-          // 事件显示名：colDisplayNames（列级）> eventTitles（版本级）> 默认名
-          const displayName = (game.colDisplayNames && game.colDisplayNames[ev.historyKey]) || ev.title;
+          // 小标签（时间轴/月历显示的标签名）：tlTagNames > SHORT 缩写 > 事件标题
+          // 大标题（卡片顶部）独立取 ev.title，不受「标签名」影响
+          const tlTag = tlTagName(game, ev.historyKey);
+          const cardTitle = ev.title;
+          const displayName = tlTag || cardTitle;
           const tip = escapeHtml(displayName) + verLabel + ' ' + fmtDate(ev.date) + ' (+' + ev.offset + '天)' + remarkSuffix;
           const tSizeCls = getTagSizeClass(ev.defKey, ev.charIndex, game);
           marks += `<div class="tl-event-mark" data-game="${game.id}" data-tenths="${v.tenths}" data-hk="${ev.historyKey}"` +
-            ` data-date="${fmtDate(ev.date)}" data-name="${escapeHtml(displayName)}" data-ver="${escapeHtml(v.label)}"` +
+            ` data-date="${fmtDate(ev.date)}" data-name="${escapeHtml(cardTitle)}" data-customtitle="${escapeAttr(ev.customTitle || '')}" data-ver="${escapeHtml(v.label)}"` +
             ` data-offset="${ev.offset}" data-remark="${escapeHtml(remarkName)}" data-gname="${escapeHtml(game.name)}"` +
             ` data-cycle="${game.baseCycleDays}" data-type="${ev.defKey}" data-source="${ev.source || ''}"` +
             ` data-charidx="${ev.charIndex ?? ''}" data-ischar="${ev._isChar ? 1 : 0}" data-istease="${ev._tease ? 1 : 0}"` +
-            ` data-tagname="${escapeAttr(game.colDisplayNames && game.colDisplayNames[ev.historyKey] || '')}"` +
+            ` data-tagname="${escapeAttr(tlTag)}"` +
             ` style="left:${mLeft}px;background:${eventColor(ev.defKey, ev.charIndex ?? ev.sub)}"></div>`;
-          // 标签文本优先级：colDisplayNames 自定义名 > SHORT 缩写 > 默认名
-          const finalLabel = (game.colDisplayNames && game.colDisplayNames[ev.historyKey])
+          // 标签文本优先级：tlTagNames 自定义标签名 > SHORT 缩写 > 默认名
+          const finalLabel = tlTag
             ? displayName
             : (SHORT[evShortKey(ev)] || displayName);
           if (state.showLabels) {
@@ -1910,7 +1937,7 @@ function bindTimelineEvents() {
       const mkey = escapeAttr(gameId + '|' + tenths + '|' + hk);
       let nameHtml, dateHtml, remarkHtml;
       if (editMode) {
-        nameHtml = `<input type="text" class="thc-inp thc-inp-name" data-field="title" data-key="${mkey}" value="${escapeAttr(m.dataset.name)}" placeholder="自定义名称">`;
+        nameHtml = `<input type="text" class="thc-inp thc-inp-name" data-field="title" data-key="${mkey}" value="${escapeAttr(m.dataset.customtitle || '')}" placeholder="${escapeAttr(m.dataset.name || '自定义名称')}">`;
         dateHtml = `<input type="date" class="thc-inp thc-inp-date" data-field="date" data-key="${mkey}" data-hk="${escapeAttr(hk)}" data-game="${escapeAttr(gameId)}" data-tenths="${escapeAttr(tenths)}" data-charidx="${charIdx ?? ''}" value="${escapeAttr(m.dataset.date)}" onchange="this.setAttribute('data-dirty','1')">`;
         // 备注：仅 _isChar/_tease 事件才有 charNames
         const remarkInput = (m.dataset.ischar === '1' || m.dataset.istease === '1')
@@ -2144,10 +2171,11 @@ function bindTimelineEvents() {
         if (val) { game.eventTitles[tkey] = val; anyChange = true; }
         else { delete game.eventTitles[tkey]; anyChange = true; }
       } else if (field === 'tagname') {
-        // 列级标签名 → colDisplayNames
-        if (!game.colDisplayNames) game.colDisplayNames = {};
-        if (val) { game.colDisplayNames[hk] = val; anyChange = true; }
-        else { delete game.colDisplayNames[hk]; anyChange = true; }
+        // 时间轴/月历事件标签名 → tlTagNames（与列表表头 colDisplayNames 完全独立）
+        // 空串＝明确清空（回默认名），写入空串而非删除，避免又回退到 colDisplayNames 旧值
+        if (!game.tlTagNames) game.tlTagNames = {};
+        game.tlTagNames[hk] = val;
+        anyChange = true;
       } else if (field === 'remark') {
         // 角色备注 → charNames
         if (!game.charNames) game.charNames = {};
@@ -2600,11 +2628,11 @@ function renderList() {
       if (g.singleton) {
         const c = g.cols[0];
         const origKey = c.def._origKey || c.def.key;
-        const dName = (game.colDisplayNames && game.colDisplayNames[g.id]) || (c.def.name + (c.def.sub ? c.def.sub[c.idx] : ''));
+        const dName = listHeadName(game, g.id) || (c.def.name + (c.def.sub ? c.def.sub[c.idx] : ''));
         headRow1 += `<th class="le-group-drag ${wcls}" data-col-key="${escapeAttr(g.id)}" rowspan="2" style="background:${g.color};color:#fff${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:#fff;display:inline-block;width:8px;height:8px;border-radius:50%"></span> ${escapeHtml(dName)}${renameBtnHTML(game.id, g.id, 'group')}</th>`;
       } else {
         const colSpan = g.cols.length;
-        const dName = (game.colDisplayNames && game.colDisplayNames[g.id]) || g.label;
+        const dName = listHeadName(game, g.id) || g.label;
         headRow1 += `<th colspan="${colSpan}" class="char-group-head le-group-drag ${wcls}" data-col-key="${escapeAttr(g.id)}" style="background:${g.color};color:#fff;font-size:11px;font-weight:700;padding:4px 6px;border-bottom:3px solid rgba(255,255,255,.55)${hid ? ';opacity:.35;text-decoration:line-through' : ''};cursor:${editMode ? 'grab' : 'default'}"${gDrag}>${grab}<span class="chip-dot" style="background:#fff;width:6px;height:6px"></span> ${escapeHtml(dName)}${renameBtnHTML(game.id, g.id, 'group')}</th>`;
       }
     });
@@ -2624,7 +2652,7 @@ function renderList() {
           cellText = col.def.name;
           if (col.type === 'tease') cellText = cellText.replace(/^新角色爆料·/, '');
         }
-        const dName = (game.colDisplayNames && game.colDisplayNames[col.colId]) || cellText;
+        const dName = listHeadName(game, col.colId) || cellText;
         const subWcls = col.type === 'tease' ? 'col-tease' : (col.type === 'char' ? 'col-char' : 'col-normal');
         const dragAttrs = editMode
           ? ` draggable="true" data-col-id="${escapeAttr(col.colId)}" data-group-id="${escapeAttr(g.id)}" data-col-key="${escapeAttr(col.colId)}" class="le-col-drag ${subWcls}"`
@@ -3066,8 +3094,8 @@ function openColRenameEditor(gameId, key, kind, thEl) {
   closeListCellEditor();
   const game = state.games.find(g => g.id === gameId);
   if (!game) return;
-  if (!game.colDisplayNames) game.colDisplayNames = {};
-  const current = game.colDisplayNames[key] || '';
+  if (!game.listHeadNames) game.listHeadNames = {};
+  const current = listHeadName(game, key);
   const kindLabel = kind === 'group' ? '大项（分组标题）' : '小项（子列名）';
   const editor = document.createElement('div');
   editor.className = 'le-inline-editor';
@@ -3095,10 +3123,11 @@ function openColRenameEditor(gameId, key, kind, thEl) {
 window.saveColRename = function(gameId, key, kind) {
   const game = state.games.find(g => g.id === gameId);
   if (!game) return;
-  if (!game.colDisplayNames) game.colDisplayNames = {};
+  if (!game.listHeadNames) game.listHeadNames = {};
   const val = document.getElementById('le-col-name').value.trim();
-  if (val) game.colDisplayNames[key] = val;
-  else delete game.colDisplayNames[key];
+  // 写 listHeadNames：只影响列表表头，不影响时间轴/月历标签名（tlTagNames）
+  // 空串＝恢复默认名（写空串而非删除，避免又回退到旧 colDisplayNames 里的历史值）
+  game.listHeadNames[key] = val;
   closeListCellEditor();
   saveAndRender();
   toast(val ? '已重命名' : '已恢复默认名称');
@@ -3465,7 +3494,7 @@ function cellHTML(dt, byDate, custByDate, out) {
       const verLabel = (ev.defKey === 'version_update' || ev.defKey === 'version_preview')
         ? ' v' + it.version.label : '';
       const sizeCls = getTagSizeClass(ev.defKey, ev.charIndex, g);
-      const chipName = (g.colDisplayNames && g.colDisplayNames[ev.historyKey]) || ev.title;
+      const chipName = tlTagName(g, ev.historyKey) || ev.title;
       return `<div class="ev-chip ${sizeCls}" data-game="${it.game.id}" data-tenths="${it.version.tenths}" data-hk="${it.ev.historyKey}" title="${escapeHtml(it.game.name)} v${it.version.label} ${escapeHtml(chipName)}${remarkSuffix}">` +
         `${gameIconHTML(it.game, 'chip-ico')}<span class="chip-dot" style="background:${eventColor(it.ev.defKey, it.ev.charIndex ?? it.ev.sub)}"></span>` +
         `<span class="chip-txt">${escapeHtml(chipName)}${verLabel}${remarkSuffix}</span></div>`;
