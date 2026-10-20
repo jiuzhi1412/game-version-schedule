@@ -35,9 +35,11 @@ function log(msg) {
 function git(args, cwd) {
   return execFileSync('git', args, { cwd, encoding: 'utf8' });
 }
-function overridesChanged(repo) {
+// 仅监测会发布到网页的核心文件（避免误推 .workbuddy/ 等工作区私有文件）
+const PUSH_FILES = ['app.js', 'index.html', 'styles.css', 'data/overrides.json', 'autopush'];
+function repoDirty(repo) {
   try {
-    const s = git(['status', '--porcelain', '--', 'data/overrides.json'], repo).trim();
+    const s = git(['status', '--porcelain', '--', ...PUSH_FILES], repo).trim();
     return s.length > 0;
   } catch (e) {
     return false;
@@ -49,14 +51,18 @@ async function pushOnce() {
     return;
   }
   const repo = config.repo;
-  if (!overridesChanged(repo)) {
+  if (!repoDirty(repo)) {
     log('· 无改动，跳过');
     return;
   }
   try {
-    git(['add', 'data/overrides.json'], repo);
+    git(['add', ...PUSH_FILES], repo);
+    // 仅当确有暂存改动时才提交（白名单里可能含未改动文件）
+    const staged = git(['diff', '--cached', '--name-only'], repo).trim();
+    if (!staged) { log('· 无实际改动，跳过'); return; }
     const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
-    git(['commit', '-m', `autopush: 同步编辑 ${ts}`], repo);
+    const fileList = staged.replace(/\n/g, ', ');
+    git(['commit', '-m', `autopush: 同步 ${fileList} ${ts}`], repo);
     const remote = `https://${config.pat}@github.com/jiuzhi1412/game-version-schedule.git`;
     git(['remote', 'set-url', '--push', 'origin', remote], repo);
     try {
