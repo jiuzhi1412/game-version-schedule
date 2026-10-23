@@ -2318,8 +2318,10 @@ function listEvCellHTML(game, v, ev, editMode, identityColors) {
   if (isDynamicChar) {
     const ci = ev.charIndex;
     const charName = (game.charNames && game.charNames[String(v.tenths) + '|' + ci]) || '';
-    // charNames 优先 → 其次 eventTitles（per-cell 覆盖）→ 都没有则不显示标签
-    const displayName = charName || ((ev.title !== ev.name) ? ev.title : '');
+    // charNames 优先 → 其次 eventTitles（用户在本格真正手填过的自定义标题）→ 都没有则不显示标签
+    // ⚠️ 不能用 ev.title !== ev.name 判断：角色事件默认标题已改为跟随列表表头列名（如「走进星穹」），
+    //    那样会让所有没填内容的空格子都冒出一个列名标签。
+    const displayName = charName || (ev.customTitle || '');
     if (displayName) {
       const tc = tagColorFor(displayName, identityColors);
       if (tc) {
@@ -2329,8 +2331,8 @@ function listEvCellHTML(game, v, ev, editMode, identityColors) {
         customHtml = `<div class="ev-char-tag" style="background:${tagColor}1a;color:${tagColor};border:1px solid ${tagColor}55;font-weight:700">${escapeHtml(displayName)}</div>`;
       }
     }
-  } else if (ev.title !== ev.name) {
-    customHtml = `<div class="ev-custom">${escapeHtml(ev.title)}</div>`;
+  } else if (ev.customTitle) {
+    customHtml = `<div class="ev-custom">${escapeHtml(ev.customTitle)}</div>`;
   }
 
   // 该版本无此事件：显示空占位（编辑模式下可点击恢复）
