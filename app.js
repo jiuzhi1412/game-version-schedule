@@ -1941,15 +1941,24 @@ function bindTimelineEvents() {
       const hk = m.dataset.hk;
       const gameId = m.dataset.game;
       const tenths = m.dataset.tenths;
-      const charIdx = (m.dataset.charIdx != null && m.dataset.charIdx !== '') ? Number(m.dataset.charIdx) : null;
+      // ⚠️ 属性是 data-charidx（全小写），dataset 必须写 .charidx；
+      //    历史 bug：这里曾写成 .charIdx（= data-char-idx）恒为 undefined，
+      //    导致备注框拿不到角色索引，保存时一律落到「角色一」槽位，
+      //    于是编辑角色二的备注会覆盖掉角色一的名字（两角色变同名）。
+      const charIdxRaw = m.dataset.charidx;
+      const hkCiMatch = hk ? String(hk).match(/_(\d+)$/) : null;
+      const charIdx = (charIdxRaw != null && charIdxRaw !== '')
+        ? Number(charIdxRaw)
+        : (hkCiMatch ? Number(hkCiMatch[1]) : null);
       const mkey = escapeAttr(gameId + '|' + tenths + '|' + hk);
       let nameHtml, dateHtml, remarkHtml;
       if (editMode) {
-        nameHtml = `<input type="text" class="thc-inp thc-inp-name" data-field="title" data-key="${mkey}" value="${escapeAttr(m.dataset.customtitle || '')}" placeholder="${escapeAttr(m.dataset.name || '自定义名称')}">`;
+        // 标题输入框必须带 data-hk，否则 saveEditChanges 里的 tkey 会拼成「36|undefined」，自定义标题丢失
+        nameHtml = `<input type="text" class="thc-inp thc-inp-name" data-field="title" data-key="${mkey}" data-hk="${escapeAttr(hk)}" data-tenths="${escapeAttr(tenths)}" value="${escapeAttr(m.dataset.customtitle || '')}" placeholder="${escapeAttr(m.dataset.name || '自定义名称')}">`;
         dateHtml = `<input type="date" class="thc-inp thc-inp-date" data-field="date" data-key="${mkey}" data-hk="${escapeAttr(hk)}" data-game="${escapeAttr(gameId)}" data-tenths="${escapeAttr(tenths)}" data-charidx="${charIdx ?? ''}" value="${escapeAttr(m.dataset.date)}" onchange="this.setAttribute('data-dirty','1')">`;
         // 备注：仅 _isChar/_tease 事件才有 charNames
         const remarkInput = (m.dataset.ischar === '1' || m.dataset.istease === '1')
-          ? `<input type="text" class="thc-inp thc-inp-remark" data-field="remark" data-game="${escapeAttr(gameId)}" data-tenths="${escapeAttr(tenths)}" data-charidx="${charIdx ?? ''}" value="${escapeAttr(m.dataset.remark || '')}" placeholder="角色备注">`
+          ? `<input type="text" class="thc-inp thc-inp-remark" data-field="remark" data-hk="${escapeAttr(hk)}" data-game="${escapeAttr(gameId)}" data-tenths="${escapeAttr(tenths)}" data-charidx="${charIdx ?? ''}" value="${escapeAttr(m.dataset.remark || '')}" placeholder="角色备注">`
           : `<span class="thc-v muted">—</span>`;
         remarkHtml = `<div class="thc-row"><span class="thc-k">备注</span>${remarkInput}</div>`;
       } else {
@@ -2175,7 +2184,9 @@ function bindTimelineEvents() {
       if (field === 'title') {
         // 自定义名称（per-version）→ eventTitles
         if (!game.eventTitles) game.eventTitles = {};
-        const tkey = tenths + '|' + hk;
+        // hk 优先取 data-hk，缺失时从 data-key（gameId|tenths|hk）里兜底解析
+        const hkTitle = hk || (inp.dataset.key ? String(inp.dataset.key).split('|').slice(2).join('|') : '');
+        const tkey = tenths + '|' + hkTitle;
         if (val) { game.eventTitles[tkey] = val; anyChange = true; }
         else { delete game.eventTitles[tkey]; anyChange = true; }
       } else if (field === 'tagname') {
@@ -2187,7 +2198,11 @@ function bindTimelineEvents() {
       } else if (field === 'remark') {
         // 角色备注 → charNames
         if (!game.charNames) game.charNames = {};
-        const cidx = charIdxRaw !== '' && charIdxRaw != null ? Number(charIdxRaw) : 0;
+        // 角色索引来源优先级：输入框 data-charidx → 事件 hk 末尾的 _N（如 char_banner_1）→ 0
+        const hkCi = hk ? String(hk).match(/_(\d+)$/) : null;
+        const cidx = (charIdxRaw !== '' && charIdxRaw != null)
+          ? Number(charIdxRaw)
+          : (hkCi ? Number(hkCi[1]) : 0);
         const rkey = tenths + '|' + cidx;
         if (val) { game.charNames[rkey] = val; anyChange = true; }
         else { delete game.charNames[rkey]; anyChange = true; }
